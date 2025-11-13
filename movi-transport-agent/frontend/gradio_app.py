@@ -34,6 +34,42 @@ def create_app():
         .gradio-container {
             max-width: 1400px !important;
         }
+        /* Enhanced warning message styling */
+        .warning-high {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 5px solid #c92a2a;
+            margin: 10px 0;
+        }
+        .warning-medium {
+            background: linear-gradient(135deg, #ffd93d 0%, #ffb700 100%);
+            color: #1a1a1a;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 5px solid #f59f00;
+            margin: 10px 0;
+        }
+        /* Confirmation buttons styling */
+        button[variant="primary"] {
+            background: #28a745 !important;
+            border-color: #28a745 !important;
+        }
+        button[variant="secondary"] {
+            background: #dc3545 !important;
+            border-color: #dc3545 !important;
+        }
+        /* Chat message styling */
+        .chatbot .message {
+            padding: 12px;
+            border-radius: 8px;
+        }
+        /* Audio player styling */
+        audio {
+            width: 100%;
+            max-width: 400px;
+        }
         """
     ) as app:
         # Header

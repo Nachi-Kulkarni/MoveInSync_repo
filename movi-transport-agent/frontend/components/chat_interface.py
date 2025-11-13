@@ -144,14 +144,40 @@ def create_chat_interface(page_name: str) -> dict:
         # Check if confirmation is required
         if response.get("requires_confirmation", False):
             confirmation_msg = response.get("confirmation_message", "Please confirm this action.")
+            risk_level = response.get("ui_action", {}).get("risk_level", "medium")
 
-            # Format confirmation message with warning
+            # Get consequence details from metadata if available
+            metadata = response.get("metadata", {})
+            consequences = metadata.get("consequences", [])
+            affected_count = metadata.get("affected_count", 0)
+
+            # Format consequences as bullet points
+            consequence_bullets = ""
+            if consequences:
+                consequence_bullets = "\n".join([f"• {c}" for c in consequences])
+            elif "will cancel" in confirmation_msg.lower() or "booking" in confirmation_msg.lower():
+                # Extract key consequences from message
+                consequence_bullets = "• This action will affect bookings\n• Trip-sheet generation may be impacted"
+
+            # Add affected count if available
+            if affected_count > 0:
+                consequence_bullets += f"\n• **Affects {affected_count} employees**"
+
+            # Format confirmation message with enhanced warning styling
+            risk_emoji = "🚨" if risk_level == "high" else "⚠️"
             formatted_msg = f"""
-### ⚠️ WARNING: High-Risk Action
+{risk_emoji} **WARNING: High-Risk Action Detected**
+
+---
 
 {confirmation_msg}
 
-**Do you want to proceed?**
+**Consequences:**
+{consequence_bullets if consequence_bullets else "• This action may have significant consequences"}
+
+---
+
+**⚡ Do you want to proceed?**
             """
 
             # Store pending confirmation data
@@ -161,8 +187,8 @@ def create_chat_interface(page_name: str) -> dict:
                 "response": response
             }
 
-            # Update history with agent's warning
-            history[-1][1] = confirmation_msg
+            # Update history with agent's warning (formatted version)
+            history[-1][1] = formatted_msg
 
             return (
                 history,
