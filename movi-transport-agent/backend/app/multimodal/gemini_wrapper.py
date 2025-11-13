@@ -137,8 +137,8 @@ Respond in JSON format with this structure:
         try:
             response = await self.client.chat_completion(
                 messages=messages,
-                temperature=0.3,  # Lower temperature for more consistent extraction
-                max_tokens=1000
+                temperature=0.1,  # Lower for faster, consistent extraction
+                max_tokens=500  # Reduced for faster responses
             )
 
             # Parse response

@@ -21,7 +21,7 @@ from .base import success_response, error_response
 async def assign_vehicle_to_trip(
     trip_id,
     vehicle_id: str,
-    driver_id: int = None,
+    driver_id = None,  # Accept both int (driver ID) and str (driver name)
     db: AsyncSession = None
 ) -> Dict[str, Any]:
     """
@@ -32,7 +32,7 @@ async def assign_vehicle_to_trip(
     Args:
         trip_id: The trip ID (int) or display_name (str) to assign to
         vehicle_id: The vehicle license plate (str like "MH-12-3456") or vehicle ID (int)
-        driver_id: The driver ID to assign (optional)
+        driver_id: The driver ID (int) or driver name (str like "Amit" or "Amit Kumar") - optional
         db: Database session
 
     Returns:
@@ -43,7 +43,7 @@ async def assign_vehicle_to_trip(
         }
 
     Example User Query:
-        "Assign vehicle 'MH-12-3456' and driver 'Amit' to the 'Path Path - 00:02' trip"
+        "Assign vehicle 'MH-12-GH-3456' and driver 'Amit' to the 'Path Path - 00:02' trip"
         "Assign vehicle 'KA-01-AB-1234' to trip 1"
         "Deploy vehicle 1 with driver 2 to trip 5"
     """
@@ -53,14 +53,42 @@ async def assign_vehicle_to_trip(
             try:
                 trip_id = int(trip_id)
             except ValueError:
-                # It's a trip name, look it up
+                # It's a trip name, look it up with fuzzy matching
+                trip_name_search = trip_id.strip()
+
+                # Try exact match first
                 trip_lookup_result = await db.execute(
-                    select(DailyTrip).where(DailyTrip.display_name == trip_id)
+                    select(DailyTrip).where(DailyTrip.display_name == trip_name_search)
                 )
                 trip = trip_lookup_result.scalar_one_or_none()
+
+                # If no exact match, try case-insensitive match
                 if not trip:
+                    trip_lookup_result = await db.execute(
+                        select(DailyTrip).where(DailyTrip.display_name.ilike(trip_name_search))
+                    )
+                    trip = trip_lookup_result.scalar_one_or_none()
+
+                # If still no match, try partial match (for time format variations like "6:00" vs "06:00")
+                if not trip:
+                    # Normalize time format in search string (6:00 → 06:00)
+                    import re
+                    normalized_search = re.sub(r'\b(\d):(\d{2})\b', r'0\1:\2', trip_name_search)
+
+                    trip_lookup_result = await db.execute(
+                        select(DailyTrip).where(DailyTrip.display_name.ilike(f"%{normalized_search}%"))
+                    )
+                    trip = trip_lookup_result.scalar_one_or_none()
+
+                if not trip:
+                    # Get similar trip names for helpful error
+                    all_trips_result = await db.execute(
+                        select(DailyTrip.display_name).limit(10)
+                    )
+                    available_trips = [row[0] for row in all_trips_result.fetchall()]
+
                     return error_response(
-                        error=f"Trip '{trip_id}' not found",
+                        error=f"Trip '{trip_id}' not found. Available trips: {', '.join(available_trips[:5])}...",
                         message="Trip not found in database"
                     )
                 trip_id = trip.trip_id
@@ -111,19 +139,6 @@ async def assign_vehicle_to_trip(
                 message="Vehicle already deployed"
             )
 
-        # Verify driver exists (if provided)
-        driver = None
-        if driver_id is not None:
-            driver_result = await db.execute(
-                select(Driver).where(Driver.driver_id == driver_id)
-            )
-            driver = driver_result.scalar_one_or_none()
-            if not driver:
-                return error_response(
-                    error=f"Driver ID {driver_id} not found",
-                    message="Driver not found in database"
-                )
-
         # Check if trip already has a deployment
         trip_deployment = await db.execute(
             select(Deployment).where(Deployment.trip_id == trip_id)
@@ -134,11 +149,76 @@ async def assign_vehicle_to_trip(
                 message="Trip already has deployment"
             )
 
+        # Get or verify driver
+        driver = None
+        if driver_id is not None:
+            # Resolve driver_id (can be int ID or string name)
+            if isinstance(driver_id, int):
+                # It's a driver ID
+                driver_result = await db.execute(
+                    select(Driver).where(Driver.driver_id == driver_id)
+                )
+                driver = driver_result.scalar_one_or_none()
+                if not driver:
+                    return error_response(
+                        error=f"Driver ID {driver_id} not found",
+                        message="Driver not found in database"
+                    )
+            else:
+                # It's a driver name - try partial match
+                driver_name = str(driver_id).strip()
+                # Try exact match first
+                driver_result = await db.execute(
+                    select(Driver).where(Driver.name == driver_name)
+                )
+                driver = driver_result.scalar_one_or_none()
+
+                if not driver:
+                    # Try partial match (e.g., "Amit" matches "Amit Kumar")
+                    driver_result = await db.execute(
+                        select(Driver).where(Driver.name.like(f"%{driver_name}%"))
+                    )
+                    driver = driver_result.scalar_one_or_none()
+
+                if not driver:
+                    # Get available drivers for helpful error
+                    all_drivers_result = await db.execute(
+                        select(Driver.name).order_by(Driver.name)
+                    )
+                    available_drivers = [row[0] for row in all_drivers_result.fetchall()]
+                    return error_response(
+                        error=f"Driver '{driver_name}' not found. Available drivers: {', '.join(available_drivers)}",
+                        message="Driver not found in database"
+                    )
+        else:
+            # Auto-assign an available driver (driver_id is required by database)
+            # First, try to find unassigned driver
+            unassigned_driver_result = await db.execute(
+                select(Driver)
+                .outerjoin(Deployment, Driver.driver_id == Deployment.driver_id)
+                .where(Deployment.driver_id.is_(None))
+                .limit(1)
+            )
+            driver = unassigned_driver_result.scalar_one_or_none()
+
+            if not driver:
+                # If no unassigned drivers, use any driver (reassignment allowed)
+                any_driver_result = await db.execute(
+                    select(Driver).limit(1)
+                )
+                driver = any_driver_result.scalar_one_or_none()
+
+            if not driver:
+                return error_response(
+                    error="No drivers available in the system",
+                    message="Cannot assign vehicle without a driver"
+                )
+
         # Create deployment
         deployment = Deployment(
             trip_id=trip_id,
             vehicle_id=vehicle.vehicle_id,
-            driver_id=driver.driver_id if driver else None
+            driver_id=driver.driver_id
         )
         db.add(deployment)
         await db.commit()
@@ -241,7 +321,7 @@ async def create_stop(
 
 async def create_path(
     path_name: str,
-    ordered_stop_ids: List[int],
+    ordered_stop_ids: List,  # Accept both int and str (stop IDs or stop names)
     db: AsyncSession
 ) -> Dict[str, Any]:
     """
@@ -251,7 +331,7 @@ async def create_path(
 
     Args:
         path_name: Path name (e.g., "Tech-Loop")
-        ordered_stop_ids: Ordered list of stop IDs [1, 3, 5]
+        ordered_stop_ids: Ordered list of stop IDs [1, 3, 5] OR stop names ["Gavipuram", "Temple", "Peenya"]
         db: Database session
 
     Returns:
@@ -276,21 +356,49 @@ async def create_path(
                 message="Path with this name already exists"
             )
 
-        # Verify all stop IDs exist
-        for stop_id in ordered_stop_ids:
-            stop_result = await db.execute(
-                select(Stop).where(Stop.stop_id == stop_id)
-            )
-            if not stop_result.scalar_one_or_none():
-                return error_response(
-                    error=f"Stop ID {stop_id} not found",
-                    message="One or more stops do not exist"
-                )
+        # Resolve stop names to stop IDs if needed
+        resolved_stop_ids = []
+        not_found_stops = []
 
-        # Create path with ordered stop IDs as JSON
+        for stop_identifier in ordered_stop_ids:
+            if isinstance(stop_identifier, int):
+                # It's already a stop ID, verify it exists
+                stop_result = await db.execute(
+                    select(Stop).where(Stop.stop_id == stop_identifier)
+                )
+                stop = stop_result.scalar_one_or_none()
+                if not stop:
+                    not_found_stops.append(f"ID {stop_identifier}")
+                else:
+                    resolved_stop_ids.append(stop_identifier)
+            else:
+                # It's a stop name (string), resolve to ID
+                stop_name = str(stop_identifier).strip()
+                stop_result = await db.execute(
+                    select(Stop).where(Stop.name == stop_name)
+                )
+                stop = stop_result.scalar_one_or_none()
+                if not stop:
+                    not_found_stops.append(f"'{stop_name}'")
+                else:
+                    resolved_stop_ids.append(stop.stop_id)
+
+        if not_found_stops:
+            # Get available stop names for helpful error message
+            all_stops_result = await db.execute(
+                select(Stop.name).order_by(Stop.name)
+            )
+            available_stops = [row[0] for row in all_stops_result.fetchall()]
+
+            return error_response(
+                error=f"Stop(s) not found: {', '.join(not_found_stops)}",
+                message=f"Could not find stops: {', '.join(not_found_stops)}. Available stops: {', '.join(available_stops[:10])}..."
+            )
+
+        # Create path with resolved stop IDs as JSON
         path = Path(
             path_name=path_name,
-            ordered_stop_ids=json.dumps(ordered_stop_ids)
+            ordered_stop_ids=json.dumps(resolved_stop_ids)
         )
         db.add(path)
         await db.commit()
@@ -298,7 +406,7 @@ async def create_path(
 
         # Get stop names for response
         stop_names = []
-        for stop_id in ordered_stop_ids:
+        for stop_id in resolved_stop_ids:
             stop_result = await db.execute(
                 select(Stop).where(Stop.stop_id == stop_id)
             )
@@ -309,11 +417,11 @@ async def create_path(
             data={
                 "path_id": path.path_id,
                 "path_name": path.path_name,
-                "stop_ids": ordered_stop_ids,
+                "stop_ids": resolved_stop_ids,
                 "stop_names": stop_names,
-                "stop_count": len(ordered_stop_ids)
+                "stop_count": len(resolved_stop_ids)
             },
-            message=f"Successfully created path '{path_name}' with {len(ordered_stop_ids)} stops"
+            message=f"Successfully created path '{path_name}' with {len(resolved_stop_ids)} stops: {', '.join(stop_names)}"
         )
 
     except Exception as e:

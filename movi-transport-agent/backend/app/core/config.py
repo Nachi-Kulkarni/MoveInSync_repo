@@ -35,9 +35,9 @@ class Settings(BaseSettings):
     LANGCHAIN_PROJECT: str = "movi-transport-agent"
 
     # Claude Configuration (TICKET #5 - via OpenRouter)
-    CLAUDE_MODEL: str = "z-ai/glm-4.6"
-    CLAUDE_TEMPERATURE: float = 0.3
-    CLAUDE_MAX_TOKENS: int = 4000
+    CLAUDE_MODEL: str = "x-ai/grok-4-fast"
+    CLAUDE_TEMPERATURE: float = 0.1  # Lower for faster, more consistent responses
+    CLAUDE_MAX_TOKENS: int = 2000  # Reduced for faster responses
 
     @property
     def cors_origins_list(self) -> list[str]:

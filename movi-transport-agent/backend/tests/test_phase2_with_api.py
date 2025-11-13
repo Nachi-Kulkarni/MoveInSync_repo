@@ -61,7 +61,7 @@ async def test_classification_prompt():
         print(f"   Trying with simplified model name...")
         # Try with base model name
         response = await client.chat_completion(
-            model="z-ai/glm-4.6",
+            model="x-ai/grok-4-fast",
             messages=messages,
             temperature=settings.CLAUDE_TEMPERATURE,
             max_tokens=settings.CLAUDE_MAX_TOKENS,

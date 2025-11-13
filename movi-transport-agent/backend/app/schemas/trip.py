@@ -12,6 +12,9 @@ class TripResponse(BaseModel):
     booking_percentage: int
     live_status: Optional[str] = None
     trip_date: Optional[date] = None
+    vehicle_license: Optional[str] = None
+    driver_name: Optional[str] = None
+    has_vehicle: bool = False
 
     class Config:
         from_attributes = True

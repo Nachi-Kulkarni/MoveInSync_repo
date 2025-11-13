@@ -121,7 +121,21 @@ def create_chat_interface(page_name: str) -> dict:
         """
         # Don't process empty messages
         if not user_input.strip() and not audio and not image and not video:
-            return history, "", None, "", None, gr.update(visible=False)
+            return history, "", None, gr.update(), None, gr.update(visible=False)
+
+        # Check if user is responding to pending confirmation with text
+        if pending_confirmation and user_input.strip().lower() in ['yes', 'y', 'confirm', 'proceed']:
+            # Add user's confirmation to history
+            history = history + [[user_input, None]]
+            # Treat as confirmation YES
+            hist, conf_row, pend, audio, conf_msg = handle_confirmation_yes(history, pending_confirmation, tts_on)
+            return (hist, "", audio, gr.update(), pend, conf_row)
+        elif pending_confirmation and user_input.strip().lower() in ['no', 'n', 'cancel', 'abort']:
+            # Add user's cancellation to history
+            history = history + [[user_input, None]]
+            # Treat as confirmation NO
+            hist, conf_row, pend = handle_confirmation_no(history, pending_confirmation)
+            return (hist, "", None, gr.update(), pend, conf_row)
 
         # Add user message to history
         history = history + [[user_input, None]]
@@ -144,10 +158,11 @@ def create_chat_interface(page_name: str) -> dict:
         # Check if confirmation is required
         if response.get("requires_confirmation", False):
             confirmation_msg = response.get("confirmation_message", "Please confirm this action.")
-            risk_level = response.get("ui_action", {}).get("risk_level", "medium")
+            ui_action = response.get("ui_action") or {}
+            risk_level = ui_action.get("risk_level", "medium")
 
             # Get consequence details from metadata if available
-            metadata = response.get("metadata", {})
+            metadata = response.get("metadata") or {}
             consequences = metadata.get("consequences", [])
             affected_count = metadata.get("affected_count", 0)
 
@@ -187,20 +202,34 @@ def create_chat_interface(page_name: str) -> dict:
                 "response": response
             }
 
-            # Update history with agent's warning (formatted version)
+            # Show confirmation warning in chat
             history[-1][1] = formatted_msg
 
             return (
                 history,
                 "",
                 None,
-                formatted_msg,
+                gr.update(value=formatted_msg),  # Update confirmation message
                 pending_data,
-                gr.update(visible=True)
+                gr.update(visible=True)  # Make confirmation row with buttons visible
             )
 
-        # Normal response
-        agent_response = response.get("response", "I'm sorry, I couldn't process that request.")
+        # Check for errors and provide the best error message
+        if response.get("error") and not response.get("execution_success", True):
+            # Use the error field if it's more specific than the response
+            error_msg = response.get("error", "Operation failed")
+            response_msg = response.get("response", "")
+
+            # Show the more specific/technical error if it differs from the response
+            if error_msg != response_msg and len(error_msg) > len(response_msg):
+                agent_response = f"❌ {error_msg}"
+            else:
+                agent_response = f"❌ {response_msg}"
+        else:
+            # Normal response
+            # Use the actual response from the backend
+            agent_response = response.get("response", "I'm sorry, I couldn't process that request.")
+
         history[-1][1] = agent_response
 
         # Generate TTS if enabled
@@ -233,7 +262,12 @@ def create_chat_interface(page_name: str) -> dict:
         )
 
         if error:
-            history = history + [["[Confirmation]", f"❌ Error: {error}"]]
+            # Use the backend's response if available, otherwise show error
+            backend_response = response.get("response", f"Error: {error}")
+            # If execution failed and there's a specific error, show that instead
+            if response.get("error") and not response.get("execution_success", True):
+                backend_response = f"❌ {response.get('error', error)}"
+            history = history + [["[Confirmation]", backend_response]]
             return history, gr.update(visible=False), None, None, ""
 
         # Add agent response
@@ -267,7 +301,14 @@ def create_chat_interface(page_name: str) -> dict:
             current_page=page_name
         )
 
-        agent_response = response.get("response", "Action cancelled.") if not error else f"Error: {error}"
+        if error:
+            # Use the most informative error message
+            if response.get("error"):
+                agent_response = f"❌ {response.get('error', error)}"
+            else:
+                agent_response = f"Error: {error}"
+        else:
+            agent_response = response.get("response", "Action cancelled.")
         history = history + [["[Cancelled]", agent_response]]
 
         return history, gr.update(visible=False), None

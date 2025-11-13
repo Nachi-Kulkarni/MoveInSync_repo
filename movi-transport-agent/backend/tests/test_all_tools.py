@@ -116,10 +116,10 @@ TEST_CASES = [
         "id": 10,
         "category": "CREATE - Dynamic",
         "tool": "assign_vehicle_to_trip",
-        "query": "Put vehicle 'MH-12-GH-3456' on the 'Bulk - 00:01' trip",
+        "query": "Put vehicle 'MH-12-GH-3456' on trip 2",
         "expected_tool": "assign_vehicle_to_trip",
         "expected_success": True,
-        "description": "Assign vehicle using trip name"
+        "description": "Assign vehicle to trip without existing vehicle (trip 2)"
     },
 
     # ========== CREATE TOOLS (Static Assets) ==========
@@ -185,7 +185,7 @@ TEST_CASES = [
         "tool": "remove_vehicle_from_trip",
         "query": "Remove the vehicle from 'Hollilux - BTS - 17:00'",
         "expected_tool": "remove_vehicle_from_trip",
-        "expected_success": False,  # Should stop at confirmation
+        "expected_success": True,  # Success = confirmation properly triggered
         "requires_confirmation": True,
         "description": "Remove vehicle from 50% booked trip (HIGH RISK)"
     },
@@ -193,11 +193,11 @@ TEST_CASES = [
         "id": 18,
         "category": "DELETE - High Risk",
         "tool": "remove_vehicle_from_trip",
-        "query": "Unassign vehicle from trip 7",
+        "query": "Unassign vehicle from trip 1",
         "expected_tool": "remove_vehicle_from_trip",
-        "expected_success": False,  # Should stop at confirmation
+        "expected_success": True,  # Success = confirmation properly triggered
         "requires_confirmation": True,
-        "description": "Remove vehicle from 10% booked trip (MEDIUM RISK)"
+        "description": "Remove vehicle from 25% booked trip (MEDIUM RISK)"
     },
 
     # ========== EDGE CASES & ERROR HANDLING ==========
@@ -357,17 +357,19 @@ async def run_tests():
             response = await test_agent_query(test_case["query"], session_id)
             duration = time.time() - start
 
-            # Determine success
+            # Determine success (this is "actual_success" that will be compared to expected_success)
             if test_case.get("requires_confirmation"):
                 # For high-risk actions, success = got confirmation prompt
                 success = response.get("requires_confirmation", False)
                 notes = "Confirmation flow triggered as expected" if success else "Expected confirmation prompt"
             else:
-                # For normal actions, success = execution_success or expected error
+                # For normal actions, success = execution_success
                 success = response.get("execution_success", False)
+
+                # Special case: If we EXPECT failure (error) and we GET an error, that's correct
                 if not test_case["expected_success"] and response.get("error"):
-                    # Expected error case
-                    success = True
+                    # Expected error case - set success=False to match expected_success=False
+                    success = False
                     notes = f"Expected error occurred: {response.get('error')[:50]}"
                 else:
                     notes = ""

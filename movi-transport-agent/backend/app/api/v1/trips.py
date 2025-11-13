@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.api.deps import get_db
 from app.models.daily_trip import DailyTrip
 from app.models.deployment import Deployment
+from app.models.vehicle import Vehicle
+from app.models.driver import Driver
 from app.schemas.trip import TripResponse, TripConsequence
 
 router = APIRouter()
@@ -11,9 +14,41 @@ router = APIRouter()
 
 @router.get("/trips", response_model=list[TripResponse])
 async def list_trips(db: AsyncSession = Depends(get_db)):
-    """List all daily trips"""
-    result = await db.execute(select(DailyTrip))
-    trips = result.scalars().all()
+    """List all daily trips with vehicle and driver information"""
+    # Join with deployments, vehicles, and drivers
+    result = await db.execute(
+        select(
+            DailyTrip.trip_id,
+            DailyTrip.route_id,
+            DailyTrip.display_name,
+            DailyTrip.booking_percentage,
+            DailyTrip.live_status,
+            DailyTrip.trip_date,
+            Vehicle.license_plate,
+            Driver.name.label('driver_name')
+        )
+        .outerjoin(Deployment, DailyTrip.trip_id == Deployment.trip_id)
+        .outerjoin(Vehicle, Deployment.vehicle_id == Vehicle.vehicle_id)
+        .outerjoin(Driver, Deployment.driver_id == Driver.driver_id)
+    )
+
+    rows = result.all()
+
+    # Build response with vehicle info
+    trips = []
+    for row in rows:
+        trips.append(TripResponse(
+            trip_id=row.trip_id,
+            route_id=row.route_id,
+            display_name=row.display_name,
+            booking_percentage=row.booking_percentage,
+            live_status=row.live_status,
+            trip_date=row.trip_date,
+            vehicle_license=row.license_plate,
+            driver_name=row.driver_name,
+            has_vehicle=row.license_plate is not None
+        ))
+
     return trips
 
 

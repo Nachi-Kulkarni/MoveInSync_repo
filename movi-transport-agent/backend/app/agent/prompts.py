@@ -135,10 +135,36 @@ Tribal Knowledge (CRITICAL):
 - Removing vehicles cancels existing bookings
 - Always check consequences before deletions
 
+PAGE CONTEXT AWARENESS:
+- busDashboard: For trip management, vehicle assignments, deployments, bookings
+  - WRITE/DELETE Actions: assign_vehicle_to_trip, remove_vehicle_from_trip
+  - READ Actions: get_trip_status, get_unassigned_vehicles_count (and all other READ actions)
+- manageRoute: For route/path creation and configuration
+  - WRITE Actions: create_route, create_path, create_stop
+  - READ Actions: list_routes_by_path, list_stops_for_path (and all other READ actions)
+
+IMPORTANT - READ OPERATIONS:
+- ALL read operations (list, get, view) work on BOTH pages - DO NOT set wrong_page=true for READ actions
+- Only WRITE/DELETE operations are page-specific
+
+WRONG PAGE DETECTION (WRITE/DELETE ONLY):
+If user's WRITE/DELETE intent doesn't match current page context:
+- Set "wrong_page": true
+- Set "suggest_page": "busDashboard" or "manageRoute"
+- Set "action_plan": brief description of what they're trying to do
+
+Examples:
+- User on "busDashboard" asks "Create a new route" (WRITE) → wrong_page=true, suggest_page="manageRoute"
+- User on "manageRoute" asks "Remove vehicle from trip" (DELETE) → wrong_page=true, suggest_page="busDashboard"
+- User on "busDashboard" asks "List all stops" (READ) → wrong_page=false (READ works everywhere)
+- User on "manageRoute" asks "Show unassigned vehicles" (READ) → wrong_page=false (READ works everywhere)
+
 Output Format (JSON):
 {
   "intent": "remove_vehicle|assign_vehicle|create_stop|list_trips|...",
   "action_type": "read|write|delete",
+  "wrong_page": false,  // Set to true if user is on wrong page
+  "suggest_page": "busDashboard|manageRoute",  // Only if wrong_page=true
   "extracted_entities": {
     "trip_id": 1,
     "vehicle_id": "MH-12-3456",

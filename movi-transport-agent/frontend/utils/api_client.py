@@ -74,14 +74,26 @@ def send_message_to_agent(
             payload["multimodal_data"] = multimodal_data
 
         # Send request to backend
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=90.0) as client:  # Increased from 30s to 90s for slower LLM responses
             response = client.post(
                 f"{API_BASE}/agent/message",
                 json=payload
             )
 
             if response.status_code == 200:
-                return response.json(), None
+                response_data = response.json()
+                # Handle nested JSON responses
+                if "response" in response_data and isinstance(response_data["response"], str):
+                    try:
+                        # Try to parse the inner JSON response
+                        import json
+                        inner_response = json.loads(response_data["response"])
+                        response_data.update(inner_response)
+                        return response_data, None
+                    except (json.JSONDecodeError, KeyError):
+                        # If parsing fails, use the raw response
+                        pass
+                return response_data, None
             else:
                 error_msg = f"Backend error: {response.status_code} - {response.text}"
                 return {}, error_msg
@@ -130,14 +142,25 @@ def send_confirmation(
             }
         }
 
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=90.0) as client:  # Increased from 30s to 90s for slower LLM responses
             response = client.post(
                 f"{API_BASE}/agent/confirm",
                 json=payload
             )
 
             if response.status_code == 200:
-                return response.json(), None
+                response_data = response.json()
+                # Handle nested JSON responses for confirmation too
+                if "response" in response_data and isinstance(response_data["response"], str):
+                    try:
+                        import json
+                        inner_response = json.loads(response_data["response"])
+                        response_data.update(inner_response)
+                        return response_data, None
+                    except (json.JSONDecodeError, KeyError):
+                        # If parsing fails, use the raw response
+                        pass
+                return response_data, None
             else:
                 error_msg = f"Confirmation error: {response.status_code} - {response.text}"
                 return {}, error_msg

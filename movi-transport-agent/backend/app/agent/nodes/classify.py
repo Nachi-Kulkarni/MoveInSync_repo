@@ -47,15 +47,24 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
         # Get processed input
         processed_input = state.get("processed_input", {})
         user_input = state.get("user_input", "")
-        
-        # Build prompt for Claude
+        context = state.get("context", {})
+        current_page = context.get("page", "unknown")
+
+        # Build prompt for Claude with page context
         user_message = f"""
+Current Page: {current_page} {"(Bus Dashboard - for trip management, vehicle assignments, bookings)" if current_page == "busDashboard" else "(Manage Routes - for creating/viewing routes and paths)" if current_page == "manageRoute" else ""}
+
 Preprocessed Input (from Gemini):
 {json.dumps(processed_input, indent=2)}
 
 Original User Input: "{user_input}"
 
 Please classify the intent and extract entities for tool execution.
+
+IMPORTANT - Page Context Awareness:
+- If on "busDashboard" and user wants to create routes/paths, set wrong_page=true and suggest_page="manageRoute"
+- If on "manageRoute" and user wants to manage trips/vehicles/bookings, set wrong_page=true and suggest_page="busDashboard"
+- Include these fields in your JSON response if applicable
 """
         
         messages = [
@@ -94,18 +103,48 @@ Please classify the intent and extract entities for tool execution.
             content = content.split("```")[1].split("```")[0].strip()
         
         classification = json.loads(content)
-        
+
+        # Check if user is on wrong page
+        if classification.get("wrong_page", False):
+            suggested_page = classification.get("suggest_page", "")
+            page_names = {
+                "busDashboard": "🚌 Bus Dashboard",
+                "manageRoute": "🛣️ Manage Routes"
+            }
+            current_page_name = page_names.get(current_page, current_page)
+            suggested_page_name = page_names.get(suggested_page, suggested_page)
+
+            # Get a clean action description
+            intent = classification.get("intent", "")
+            action_descriptions = {
+                "create_route": "create routes",
+                "create_path": "create paths",
+                "create_stop": "create stops",
+                "list_routes": "view routes",
+                "assign_vehicle": "assign vehicles to trips",
+                "remove_vehicle": "remove vehicles from trips",
+                "get_trip_status": "view trip details",
+            }
+            action_desc = action_descriptions.get(intent, "perform this action")
+
+            return {
+                "error": f"📍 You're currently on the '{current_page_name}' tab. Please switch to the '{suggested_page_name}' tab to {action_desc}.",
+                "error_node": "classify_intent_node",
+                "intent": classification.get("intent"),
+                "action_type": "info",
+            }
+
         # Validate and extract fields
         intent = classification.get("intent")
         action_type = classification.get("action_type")
         tool_name = classification.get("tool_name")
-        
+
         # Get requires_consequence_check from tool metadata or Claude
         requires_check = classification.get("requires_consequence_check", False)
         if tool_name and tool_name in TOOL_METADATA_REGISTRY:
             tool_metadata = TOOL_METADATA_REGISTRY[tool_name]
             requires_check = tool_metadata.requires_consequence_check
-        
+
         return {
             "intent": intent,
             "action_type": action_type,

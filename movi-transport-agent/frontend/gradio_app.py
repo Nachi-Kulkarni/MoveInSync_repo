@@ -109,18 +109,18 @@ def create_app():
             with gr.Tab("🛣️ Manage Routes", id="routes") as routes_tab:
                 routes_components = create_routes_tab()
 
-                # Load initial data
+                # Load initial data (both routes and stops)
                 routes_tab.select(
-                    fn=lambda: ("manageRoute", routes_components["load_data_fn"]()),
+                    fn=lambda: ("manageRoute", routes_components["load_data_fn"](), routes_components["load_stops_fn"]()),
                     inputs=[],
-                    outputs=[current_page, routes_components["routes_dataframe"]]
+                    outputs=[current_page, routes_components["routes_dataframe"], routes_components["stops_dataframe"]]
                 )
 
-                # Refresh button handler
+                # Refresh button handler (refresh both routes and stops)
                 routes_components["refresh_btn"].click(
-                    fn=routes_components["refresh_fn"],
+                    fn=lambda: (routes_components["refresh_fn"](), routes_components["refresh_stops_fn"]()),
                     inputs=[],
-                    outputs=[routes_components["routes_dataframe"]]
+                    outputs=[routes_components["routes_dataframe"], routes_components["stops_dataframe"]]
                 )
 
                 # Filter handler
@@ -131,12 +131,12 @@ def create_app():
                 )
 
                 # Create route button handler
+                def show_create_route_help():
+                    message = routes_components["create_route_fn"]()
+                    return gr.update(value=message, visible=True)
+
                 routes_components["create_btn"].click(
-                    fn=routes_components["create_route_fn"],
-                    inputs=[],
-                    outputs=[routes_components["status_message"]]
-                ).then(
-                    lambda: gr.update(visible=True),
+                    fn=show_create_route_help,
                     inputs=[],
                     outputs=[routes_components["status_message"]]
                 )

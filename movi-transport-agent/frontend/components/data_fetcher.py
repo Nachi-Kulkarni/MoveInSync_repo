@@ -19,7 +19,7 @@ async def fetch_trips() -> pd.DataFrame:
     Fetch all trips from backend API.
 
     Returns:
-        DataFrame with columns: Trip Name, Booking %, Live Status
+        DataFrame with columns: Trip Name, Booking %, Vehicle, Driver, Live Status
         Returns empty DataFrame on error
     """
     try:
@@ -31,9 +31,20 @@ async def fetch_trips() -> pd.DataFrame:
             # Transform data for display
             trips_data = []
             for trip in data:
+                # Format vehicle info
+                if trip.get("has_vehicle") and trip.get("vehicle_license"):
+                    vehicle = f"🚗 {trip['vehicle_license']}"
+                else:
+                    vehicle = "⚠️ No Vehicle"
+
+                # Format driver info
+                driver = trip.get("driver_name", "—") if trip.get("has_vehicle") else "—"
+
                 trips_data.append({
                     "Trip Name": trip.get("display_name", "Unknown"),
                     "Booking %": f"{trip.get('booking_percentage', 0)}%",
+                    "Vehicle": vehicle,
+                    "Driver": driver,
                     "Live Status": trip.get("live_status", "N/A")
                 })
 
@@ -41,7 +52,7 @@ async def fetch_trips() -> pd.DataFrame:
 
     except Exception as e:
         print(f"Error fetching trips: {e}")
-        return pd.DataFrame(columns=["Trip Name", "Booking %", "Live Status"])
+        return pd.DataFrame(columns=["Trip Name", "Booking %", "Vehicle", "Driver", "Live Status"])
 
 
 async def fetch_routes() -> pd.DataFrame:

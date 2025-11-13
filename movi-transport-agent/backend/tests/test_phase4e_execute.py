@@ -89,7 +89,7 @@ async def test_tool_execution():
     # Test 3: Execute DELETE tool WITH confirmation
     print("\n✅ Test 3: Execute DELETE tool WITH user confirmation")
     state3 = create_initial_state(
-        user_input="Remove vehicle from Bulk - 00:01",
+        user_input="Remove vehicle from trip 6",
         session_id="test-execute-3",
         context={"page": "busDashboard"}
     )
@@ -98,12 +98,13 @@ async def test_tool_execution():
         "intent": "remove_vehicle",
         "action_type": "delete",
         "tool_name": "remove_vehicle_from_trip",
-        "tool_params": {"trip_id": 1},
+        "tool_params": {"trip_id": 6},  # Trip 6 actually has a vehicle assigned
         "requires_confirmation": True,
         "user_confirmed": True,  # CONFIRMED!
     })
 
     print(f"   Tool: {state3['tool_name']}")
+    print(f"   Trip ID: {state3['tool_params']['trip_id']}")
     print(f"   User confirmed: {state3['user_confirmed']}")
 
     # Execute tool

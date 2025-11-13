@@ -5,8 +5,7 @@ Displays route table with filtering and actions.
 
 import gradio as gr
 import pandas as pd
-from typing import Tuple
-from .data_fetcher import fetch_routes_sync
+from .data_fetcher import fetch_routes_sync, fetch_stops_sync
 
 
 def load_routes_data() -> pd.DataFrame:
@@ -29,6 +28,33 @@ def load_routes_data() -> pd.DataFrame:
         ])
 
 
+def load_stops_data() -> pd.DataFrame:
+    """
+    Load stops data from backend.
+
+    Returns:
+        DataFrame with stop information
+    """
+    try:
+        stops_list = fetch_stops_sync()
+
+        # Transform to DataFrame
+        stops_data = []
+        for stop in stops_list:
+            stops_data.append({
+                "Stop ID": stop.get("stop_id", "N/A"),
+                "Name": stop.get("name", "Unknown"),
+                "Latitude": f"{stop.get('latitude', 0):.4f}",
+                "Longitude": f"{stop.get('longitude', 0):.4f}"
+            })
+
+        return pd.DataFrame(stops_data)
+
+    except Exception as e:
+        print(f"Error loading stops data: {e}")
+        return pd.DataFrame(columns=["Stop ID", "Name", "Latitude", "Longitude"])
+
+
 def refresh_routes() -> pd.DataFrame:
     """
     Refresh routes data.
@@ -37,6 +63,16 @@ def refresh_routes() -> pd.DataFrame:
         Updated routes DataFrame
     """
     return load_routes_data()
+
+
+def refresh_stops() -> pd.DataFrame:
+    """
+    Refresh stops data.
+
+    Returns:
+        Updated stops DataFrame
+    """
+    return load_stops_data()
 
 
 def filter_routes(df: pd.DataFrame, status_filter: str) -> pd.DataFrame:
@@ -65,9 +101,18 @@ def handle_create_route() -> str:
     Handle create route button click.
 
     Returns:
-        Message about route creation
+        Helpful message directing users to chat interface
     """
-    return "Route creation form will be available in TICKET #9 via Movi chat interface"
+    message = """✨ To create a route, use the Movi chat interface below!
+
+Example commands:
+• "Create a route using Path-1 at 08:00 AM for LOGIN"
+• "Add a new route on Path-2 at 19:45 for LOGOUT"
+• "Create route for Path-3 at 7:30 AM going to office"
+
+💬 Just scroll down and type your request in the chat!"""
+
+    return message
 
 
 def create_routes_tab() -> dict:
@@ -106,10 +151,19 @@ def create_routes_tab() -> dict:
                     wrap=True
                 )
 
-                # Status message
-                status_message = gr.Textbox(
-                    label="Status",
+                # Stops table (to view created stops)
+                gr.Markdown("### 📍 Stops")
+                stops_dataframe = gr.Dataframe(
+                    headers=["Stop ID", "Name", "Latitude", "Longitude"],
+                    datatype=["str", "str", "str", "str"],
+                    label="Stop List",
                     interactive=False,
+                    wrap=True
+                )
+
+                # Status message (for create route button)
+                status_message = gr.Markdown(
+                    value="",
                     visible=False
                 )
 
@@ -122,12 +176,15 @@ def create_routes_tab() -> dict:
     return {
         "column": routes_col,
         "routes_dataframe": routes_dataframe,
+        "stops_dataframe": stops_dataframe,
         "status_filter": status_filter,
         "refresh_btn": refresh_btn,
         "create_btn": create_btn,
         "status_message": status_message,
         "load_data_fn": load_routes_data,
+        "load_stops_fn": load_stops_data,
         "refresh_fn": refresh_routes,
+        "refresh_stops_fn": refresh_stops,
         "filter_fn": filter_routes,
         "create_route_fn": handle_create_route,
         "chat_components": chat_components

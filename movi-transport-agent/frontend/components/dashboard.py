@@ -74,7 +74,7 @@ def load_dashboard_data() -> Tuple[pd.DataFrame, str]:
     except Exception as e:
         print(f"Error loading dashboard data: {e}")
         # Return empty data on error
-        empty_df = pd.DataFrame(columns=["Trip Name", "Booking %", "Live Status"])
+        empty_df = pd.DataFrame(columns=["Trip Name", "Booking %", "Vehicle", "Driver", "Live Status"])
         error_html = f"<div style='padding: 20px; text-align: center;'>Error loading map: {str(e)}</div>"
         return empty_df, error_html
 
@@ -105,8 +105,8 @@ def create_dashboard_tab() -> dict:
             with gr.Column(scale=1):
                 gr.Markdown("### Daily Trips")
                 trips_dataframe = gr.Dataframe(
-                    headers=["Trip Name", "Booking %", "Live Status"],
-                    datatype=["str", "str", "str"],
+                    headers=["Trip Name", "Booking %", "Vehicle", "Driver", "Live Status"],
+                    datatype=["str", "str", "str", "str", "str"],
                     label="Trip List",
                     interactive=False,
                     wrap=True

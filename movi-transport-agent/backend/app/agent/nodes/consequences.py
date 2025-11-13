@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def _resolve_trip_id(trip_identifier: Any, db: AsyncSession) -> Optional[int]:
     """
-    Resolve trip identifier to trip_id.
+    Resolve trip identifier to trip_id with fuzzy matching.
 
     Args:
         trip_identifier: Can be trip_id (int) or trip name (str)
@@ -50,9 +50,29 @@ async def _resolve_trip_id(trip_identifier: Any, db: AsyncSession) -> Optional[i
         except ValueError:
             pass
 
-        # Look up by display_name
+        trip_name_search = trip_identifier.strip()
+
+        # Try exact match first
         result = await db.execute(
-            select(DailyTrip.trip_id).where(DailyTrip.display_name == trip_identifier)
+            select(DailyTrip.trip_id).where(DailyTrip.display_name == trip_name_search)
+        )
+        trip_id = result.scalar_one_or_none()
+        if trip_id:
+            return trip_id
+
+        # Try case-insensitive match
+        result = await db.execute(
+            select(DailyTrip.trip_id).where(DailyTrip.display_name.ilike(trip_name_search))
+        )
+        trip_id = result.scalar_one_or_none()
+        if trip_id:
+            return trip_id
+
+        # Try partial match with normalized time (6:00 → 06:00)
+        import re
+        normalized_search = re.sub(r'\b(\d):(\d{2})\b', r'0\1:\2', trip_name_search)
+        result = await db.execute(
+            select(DailyTrip.trip_id).where(DailyTrip.display_name.ilike(f"%{normalized_search}%"))
         )
         trip_id = result.scalar_one_or_none()
         return trip_id

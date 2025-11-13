@@ -47,14 +47,42 @@ async def remove_vehicle_from_trip(trip_id, db: AsyncSession) -> Dict[str, Any]:
             try:
                 trip_id = int(trip_id)
             except ValueError:
-                # It's a trip name, look it up
+                # It's a trip name, look it up with fuzzy matching
+                trip_name_search = trip_id.strip()
+
+                # Try exact match first
                 trip_lookup_result = await db.execute(
-                    select(DailyTrip).where(DailyTrip.display_name == trip_id)
+                    select(DailyTrip).where(DailyTrip.display_name == trip_name_search)
                 )
                 trip = trip_lookup_result.scalar_one_or_none()
+
+                # If no exact match, try case-insensitive match
                 if not trip:
+                    trip_lookup_result = await db.execute(
+                        select(DailyTrip).where(DailyTrip.display_name.ilike(trip_name_search))
+                    )
+                    trip = trip_lookup_result.scalar_one_or_none()
+
+                # If still no match, try partial match (for time format variations like "6:00" vs "06:00")
+                if not trip:
+                    # Normalize time format in search string (6:00 → 06:00)
+                    import re
+                    normalized_search = re.sub(r'\b(\d):(\d{2})\b', r'0\1:\2', trip_name_search)
+
+                    trip_lookup_result = await db.execute(
+                        select(DailyTrip).where(DailyTrip.display_name.ilike(f"%{normalized_search}%"))
+                    )
+                    trip = trip_lookup_result.scalar_one_or_none()
+
+                if not trip:
+                    # Get similar trip names for helpful error
+                    all_trips_result = await db.execute(
+                        select(DailyTrip.display_name).limit(10)
+                    )
+                    available_trips = [row[0] for row in all_trips_result.fetchall()]
+
                     return error_response(
-                        error=f"Trip '{trip_id}' not found",
+                        error=f"Trip '{trip_id}' not found. Available trips: {', '.join(available_trips[:5])}...",
                         message="Trip not found in database"
                     )
                 trip_id = trip.trip_id

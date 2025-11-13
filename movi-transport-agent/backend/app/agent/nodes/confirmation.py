@@ -95,8 +95,8 @@ Keep it under 150 words and use simple, direct language.
             response = await client.chat_completion(
                 model=settings.CLAUDE_MODEL,
                 messages=messages,
-                temperature=0.3,  # Lower temperature for more consistent messages
-                max_tokens=500,
+                temperature=0.1,  # Lower for faster responses
+                max_tokens=500,  # Reduced for faster responses
             )
         except Exception as e:
             # Fallback: Generate simple confirmation message without Claude

@@ -166,8 +166,8 @@ If there's a list, present top 2-3 items.
             response = await client.chat_completion(
                 model=settings.CLAUDE_MODEL,
                 messages=messages,
-                temperature=0.7,  # More creative for natural responses
-                max_tokens=300,
+                temperature=0.1,  # Lower for faster responses (optimization)
+                max_tokens=200,  # Reduced for faster responses
             )
         except Exception as e:
             # Fallback: Generate simple response without Claude
@@ -216,12 +216,48 @@ async def _format_error_response(
     # Common error patterns and user-friendly messages
     error_lower = error.lower()
 
-    if "confirmation" in error_lower:
+    if "📍 you're currently on" in error_lower:
+        # Page context error - show as-is (already well formatted)
+        message = error
+    elif "confirmation" in error_lower:
         message = "This action requires your confirmation before I can proceed. Please confirm or cancel."
+    elif "stop(s) not found" in error_lower:
+        # Special handling for stop not found errors - show the full helpful message
+        message = error
+    elif "not found" in error_lower and "available stops:" in error_lower:
+        # Show the detailed error message with available stops
+        message = error
+    elif "vehicle" in error_lower and "not found" in error_lower:
+        # Show vehicle not found error with details
+        message = f"❌ {error}. Please check the vehicle license plate and try again."
+    elif "driver" in error_lower and "not found" in error_lower:
+        # Show driver not found error with details
+        message = f"❌ {error}. Please check the driver name or ID and try again."
+    elif "trip" in error_lower and "not found" in error_lower:
+        # Show trip not found error with details
+        message = f"❌ {error}. Please check the trip name or ID and try again."
     elif "not found" in error_lower:
         message = f"I couldn't find what you're looking for. Please check the details and try again."
     elif "parameter" in error_lower or "missing" in error_lower:
-        message = f"I need more information to complete this request. Could you provide more details?"
+        # Extract specific missing information if available
+        if "latitude" in error_lower and "longitude" in error_lower:
+            message = "I need the latitude and longitude coordinates to create this stop. Please provide both coordinates."
+        elif "latitude" in error_lower:
+            message = "I need the latitude coordinate to create this stop. Please provide the latitude."
+        elif "longitude" in error_lower:
+            message = "I need the longitude coordinate to create this stop. Please provide the longitude."
+        else:
+            message = f"I need more information to complete this request. Could you provide more details?"
+    elif "already exists" in error_lower:
+        # Extract what already exists from the error message
+        if "stop" in error_lower:
+            message = f"The stop already exists in the system. Please use a different name or check the existing stops."
+        elif "path" in error_lower:
+            message = f"The path already exists in the system. Please use a different name or check the existing paths."
+        elif "route" in error_lower:
+            message = f"The route already exists in the system. Please use a different name or check the existing routes."
+        else:
+            message = f"This item already exists in the system. Please check the existing data or use a different name."
     elif "database" in error_lower:
         message = "I'm having trouble accessing the data right now. Please try again in a moment."
     elif "authentication" in error_lower or "api" in error_lower:

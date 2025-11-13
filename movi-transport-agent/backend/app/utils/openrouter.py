@@ -11,7 +11,7 @@ class OpenRouterConfig(BaseModel):
     """Configuration for OpenRouter API client."""
     api_key: str
     base_url: str = "https://openrouter.ai/api/v1"
-    default_model: str = "google/gemini-2.5-pro"
+    default_model: str = "google/gemini-2.5-flash"
     timeout: int = 120
 
 

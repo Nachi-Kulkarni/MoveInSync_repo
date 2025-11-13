@@ -175,10 +175,11 @@ class E2ETestRunner:
                 return False
 
             requires_confirmation = response.get("requires_confirmation", False)
-            confirmation_msg = response.get("confirmation_message", "")
+            confirmation_msg = response.get("confirmation_message") or ""  # Handle None explicitly
 
             self.log(f"Confirmation required: {requires_confirmation}")
-            self.log(f"Confirmation message: {confirmation_msg[:100]}...")
+            if confirmation_msg:
+                self.log(f"Confirmation message: {confirmation_msg[:100]}...")
 
             # Step 2: Check if confirmation was requested
             if not requires_confirmation:

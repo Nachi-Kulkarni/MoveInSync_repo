@@ -57,9 +57,10 @@ def route_after_consequences(
     Route after check_consequences_node.
 
     Decision logic:
-    1. If error occurred ' format_response
-    2. If requires_confirmation=True ' request_confirmation
-    3. Otherwise ' execute_action (low risk, no confirmation needed)
+    1. If error occurred → format_response
+    2. If user_confirmed=True → execute_action (skip confirmation, already confirmed)
+    3. If requires_confirmation=True → request_confirmation
+    4. Otherwise → execute_action (low risk, no confirmation needed)
 
     Args:
         state: Current agent state
@@ -71,6 +72,12 @@ def route_after_consequences(
     error = state.get("error")
     if error:
         return "format_response"
+
+    # Check if user has already confirmed (confirmation retry flow)
+    user_confirmed = state.get("user_confirmed", False)
+    if user_confirmed:
+        # User already confirmed - skip confirmation and execute directly
+        return "execute_action"
 
     # Check if user confirmation is required
     requires_confirmation = state.get("requires_confirmation", False)
