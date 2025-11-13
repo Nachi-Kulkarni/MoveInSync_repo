@@ -1,0 +1,274 @@
+"""
+LangGraph Workflow Definition (TICKET #5 - Phase 6)
+
+This module assembles the complete Movi Transport Agent workflow using LangGraph.
+
+Graph Structure:
+START -> preprocess_input
+       -> classify_intent
+       -> [check_consequences?] (conditional)
+       -> [request_confirmation?] (conditional)
+       -> execute_action
+       -> format_response
+       -> END
+
+Nodes:
+1. preprocess_input - Multimodal input processing (Gemini 2.5 Pro)
+2. classify_intent - Intent classification (Claude Sonnet 4.5)
+3. check_consequences - Tribal knowledge consequence checking (Database)
+4. request_confirmation - Confirmation message generation (Claude Sonnet 4.5)
+5. execute_action - Tool execution (TOOL_REGISTRY)
+6. format_response - Response formatting (Claude Sonnet 4.5)
+
+Edges:
+- Normal edges: START -> preprocess, format_response -> END
+- Conditional edges: Based on state (errors, risk level, confirmation)
+"""
+
+import os
+from typing import Dict, Any
+from langgraph.graph import StateGraph, END
+from app.agent.state import AgentState
+from app.agent.nodes import (
+    preprocess_input_node,
+    classify_intent_node,
+    check_consequences_node,
+    request_confirmation_node,
+    execute_action_node,
+    format_response_node,
+)
+from app.agent.edges import (
+    route_after_classify,
+    route_after_consequences,
+    route_after_confirmation,
+    route_after_execute,
+)
+
+
+# LangSmith tracing configuration (optional)
+# Set these environment variables for LangSmith observability
+ENABLE_LANGSMITH = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+
+if ENABLE_LANGSMITH:
+    os.environ["LANGCHAIN_ENDPOINT"] = os.getenv(
+        "LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"
+    )
+    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
+    os.environ["LANGCHAIN_PROJECT"] = os.getenv(
+        "LANGCHAIN_PROJECT", "movi-transport-agent"
+    )
+    print("LangSmith tracing enabled for Movi Transport Agent")
+
+
+def create_movi_agent_graph() -> StateGraph:
+    """
+    Create and compile the Movi Transport Agent workflow graph.
+
+    Returns:
+        Compiled StateGraph ready for execution
+
+    Graph Flow:
+    -----------
+    START
+      |
+      v
+    preprocess_input (Gemini 2.5 Pro)
+      |
+      v
+    classify_intent (Claude Sonnet 4.5)
+      |
+      +-- (error?) --> format_response --> END
+      |
+      +-- (requires_consequence_check=True?) --> check_consequences
+      |                                            |
+      |                                            +-- (error?) --> format_response
+      |                                            |
+      |                                            +-- (requires_confirmation=True?) --> request_confirmation
+      |                                            |                                       |
+      |                                            |                                       +-- (error?) --> format_response
+      |                                            |                                       |
+      |                                            |                                       +-- (user_confirmed=True?) --> execute_action
+      |                                            |                                       |
+      |                                            |                                       +-- (else) --> format_response (waiting)
+      |                                            |
+      |                                            +-- (else) --> execute_action
+      |
+      +-- (else) --> execute_action
+                       |
+                       v
+                  format_response
+                       |
+                       v
+                      END
+
+    Key Features:
+    - Consequence-first pipeline for high-risk actions
+    - Conditional routing based on state
+    - Error handling at every step
+    - User confirmation for destructive operations
+    - Multimodal input support (text, audio, image, video)
+    - OpenRouter integration (Gemini + Claude)
+    """
+    # Create state graph
+    workflow = StateGraph(AgentState)
+
+    # Add nodes to the graph
+    workflow.add_node("preprocess_input", preprocess_input_node)
+    workflow.add_node("classify_intent", classify_intent_node)
+    workflow.add_node("check_consequences", check_consequences_node)
+    workflow.add_node("request_confirmation", request_confirmation_node)
+    workflow.add_node("execute_action", execute_action_node)
+    workflow.add_node("format_response", format_response_node)
+
+    # Set entry point
+    workflow.set_entry_point("preprocess_input")
+
+    # Add normal edges (always executed in sequence)
+    workflow.add_edge("preprocess_input", "classify_intent")
+
+    # Add conditional edges (routing based on state)
+    workflow.add_conditional_edges(
+        "classify_intent",
+        route_after_classify,
+        {
+            "check_consequences": "check_consequences",
+            "execute_action": "execute_action",
+            "format_response": "format_response",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "check_consequences",
+        route_after_consequences,
+        {
+            "request_confirmation": "request_confirmation",
+            "execute_action": "execute_action",
+            "format_response": "format_response",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "request_confirmation",
+        route_after_confirmation,
+        {
+            "execute_action": "execute_action",
+            "format_response": "format_response",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "execute_action",
+        route_after_execute,
+        {
+            "format_response": "format_response",
+        },
+    )
+
+    # Terminal edge (always goes to END)
+    workflow.add_edge("format_response", END)
+
+    # Compile the graph
+    compiled_graph = workflow.compile()
+
+    return compiled_graph
+
+
+# Create singleton instance
+movi_agent_graph = create_movi_agent_graph()
+
+
+async def run_movi_agent(
+    user_input: str,
+    session_id: str,
+    context: Dict[str, Any],
+    multimodal_data: Dict[str, Any] = None,
+    user_confirmed: bool = False,
+) -> Dict[str, Any]:
+    """
+    Run the Movi Transport Agent workflow.
+
+    This is the main entry point for executing the agent.
+
+    Args:
+        user_input: User's text input
+        session_id: Unique session identifier
+        context: Current UI context (page, filters, etc.)
+        multimodal_data: Optional multimodal inputs (images, audio, video)
+        user_confirmed: Whether user has confirmed a high-risk action
+
+    Returns:
+        Final agent response with formatted message
+
+    Example:
+        >>> result = await run_movi_agent(
+        ...     user_input="How many unassigned vehicles?",
+        ...     session_id="session-123",
+        ...     context={"page": "busDashboard"}
+        ... )
+        >>> print(result["response"])
+        "There are 3 unassigned vehicles available."
+
+    Example (with confirmation):
+        >>> # First call - returns confirmation message
+        >>> result1 = await run_movi_agent(
+        ...     user_input="Remove vehicle from Bulk - 00:01",
+        ...     session_id="session-456",
+        ...     context={"page": "busDashboard"}
+        ... )
+        >>> print(result1["response_type"])
+        "confirmation"
+        >>>
+        >>> # Second call - with user confirmation
+        >>> result2 = await run_movi_agent(
+        ...     user_input="Remove vehicle from Bulk - 00:01",
+        ...     session_id="session-456",
+        ...     context={"page": "busDashboard"},
+        ...     user_confirmed=True
+        ... )
+        >>> print(result2["response_type"])
+        "success"
+    """
+    # Create initial state
+    from app.agent.state import create_initial_state
+
+    initial_state = create_initial_state(
+        user_input=user_input,
+        session_id=session_id,
+        context=context,
+    )
+
+    # Add multimodal data if provided
+    if multimodal_data:
+        initial_state["multimodal_data"] = multimodal_data
+
+    # Add user confirmation if provided
+    if user_confirmed:
+        initial_state["user_confirmed"] = True
+
+    # Run the graph
+    final_state = await movi_agent_graph.ainvoke(initial_state)
+
+    # Extract response
+    response = {
+        "response": final_state.get("response", ""),
+        "response_type": final_state.get("response_type", "info"),
+        "session_id": session_id,
+        "intent": final_state.get("intent"),
+        "action_type": final_state.get("action_type"),
+        "tool_name": final_state.get("tool_name"),
+        "execution_success": final_state.get("execution_success"),
+        "requires_confirmation": final_state.get("requires_confirmation", False),
+        "confirmation_message": final_state.get("confirmation_message"),
+        "error": final_state.get("error"),
+        "tool_results": final_state.get("tool_results"),  # Include for metadata/UI actions
+    }
+
+    return response
+
+
+# Export main functions
+__all__ = [
+    "create_movi_agent_graph",
+    "movi_agent_graph",
+    "run_movi_agent",
+]

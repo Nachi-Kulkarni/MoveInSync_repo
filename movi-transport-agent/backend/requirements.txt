@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy[asyncio]>=2.0.36
+aiosqlite>=0.20.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+httpx>=0.27.0
+openai>=1.58.1
+
+# LangGraph and LangChain for Agent Core (TICKET #5)
+langgraph>=0.2.45
+langsmith>=0.2.0
+langchain-core>=0.3.21
+langchain-openai>=0.2.9
