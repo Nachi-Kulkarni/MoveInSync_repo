@@ -75,14 +75,14 @@ async def get_unassigned_vehicles_count(db: AsyncSession) -> Dict[str, Any]:
         )
 
 
-async def get_trip_status(trip_id: int, db: AsyncSession) -> Dict[str, Any]:
+async def get_trip_status(trip_id, db: AsyncSession) -> Dict[str, Any]:
     """
     Get detailed status of a specific trip including bookings and deployment.
 
     This is a READ operation on DYNAMIC assets.
 
     Args:
-        trip_id: The trip ID to query
+        trip_id: The trip ID (int) or display_name (str) to query
         db: Database session
 
     Returns:
@@ -104,7 +104,25 @@ async def get_trip_status(trip_id: int, db: AsyncSession) -> Dict[str, Any]:
         "Show me details for trip 1"
     """
     try:
-        # Get trip details
+        # Resolve trip_id (can be int or string name)
+        if isinstance(trip_id, str):
+            # Try to convert to int first
+            try:
+                trip_id = int(trip_id)
+            except ValueError:
+                # It's a trip name, look it up
+                trip_lookup_result = await db.execute(
+                    select(DailyTrip).where(DailyTrip.display_name == trip_id)
+                )
+                trip = trip_lookup_result.scalar_one_or_none()
+                if not trip:
+                    return error_response(
+                        error=f"Trip '{trip_id}' not found",
+                        message="Trip not found in database"
+                    )
+                trip_id = trip.trip_id
+
+        # Get trip details (if we have an int ID)
         result = await db.execute(
             select(DailyTrip).where(DailyTrip.trip_id == trip_id)
         )
@@ -163,14 +181,14 @@ async def get_trip_status(trip_id: int, db: AsyncSession) -> Dict[str, Any]:
         )
 
 
-async def list_stops_for_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
+async def list_stops_for_path(path_name: str, db: AsyncSession) -> Dict[str, Any]:
     """
     List all stops in order for a specific path.
 
     This is a READ operation on STATIC assets.
 
     Args:
-        path_id: The path ID to query
+        path_name: The path name (str like "Path-1") or path ID (can be converted from str)
         db: Database session
 
     Returns:
@@ -189,15 +207,30 @@ async def list_stops_for_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
         "Show me the stops in Path 1"
     """
     try:
-        # Get path
-        result = await db.execute(
-            select(Path).where(Path.path_id == path_id)
-        )
+        # Resolve path_name to path object
+        if isinstance(path_name, int):
+            # If somehow an int is passed, use it as path_id
+            result = await db.execute(
+                select(Path).where(Path.path_id == path_name)
+            )
+        else:
+            # Try to convert to int first
+            try:
+                path_id = int(path_name)
+                result = await db.execute(
+                    select(Path).where(Path.path_id == path_id)
+                )
+            except ValueError:
+                # It's a path name string, look it up
+                result = await db.execute(
+                    select(Path).where(Path.path_name == path_name)
+                )
+
         path = result.scalar_one_or_none()
 
         if not path:
             return error_response(
-                error=f"Path ID {path_id} not found",
+                error=f"Path '{path_name}' not found",
                 message="Path not found in database"
             )
 
@@ -238,18 +271,18 @@ async def list_stops_for_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
     except Exception as e:
         return error_response(
             error=str(e),
-            message=f"Failed to fetch stops for path_id {path_id}"
+            message=f"Failed to fetch stops for path '{path_name}'"
         )
 
 
-async def list_routes_by_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
+async def list_routes_by_path(path_name: str, db: AsyncSession) -> Dict[str, Any]:
     """
     List all routes that use a specific path.
 
     This is a READ operation on STATIC assets.
 
     Args:
-        path_id: The path ID to query
+        path_name: The path name (str like "Path-1") or path ID (can be converted from str)
         db: Database session
 
     Returns:
@@ -267,21 +300,36 @@ async def list_routes_by_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
         "Which routes are on Path 2?"
     """
     try:
-        # Verify path exists
-        path_result = await db.execute(
-            select(Path).where(Path.path_id == path_id)
-        )
+        # Resolve path_name to path object
+        if isinstance(path_name, int):
+            # If somehow an int is passed, use it as path_id
+            path_result = await db.execute(
+                select(Path).where(Path.path_id == path_name)
+            )
+        else:
+            # Try to convert to int first
+            try:
+                path_id = int(path_name)
+                path_result = await db.execute(
+                    select(Path).where(Path.path_id == path_id)
+                )
+            except ValueError:
+                # It's a path name string, look it up
+                path_result = await db.execute(
+                    select(Path).where(Path.path_name == path_name)
+                )
+
         path = path_result.scalar_one_or_none()
 
         if not path:
             return error_response(
-                error=f"Path ID {path_id} not found",
+                error=f"Path '{path_name}' not found",
                 message="Path not found in database"
             )
 
         # Get all routes for this path
         result = await db.execute(
-            select(Route).where(Route.path_id == path_id)
+            select(Route).where(Route.path_id == path.path_id)
         )
         routes = result.scalars().all()
 
@@ -300,7 +348,7 @@ async def list_routes_by_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
 
         return success_response(
             data={
-                "path_id": path_id,
+                "path_id": path.path_id,
                 "path_name": path.path_name,
                 "routes": routes_data,
                 "route_count": len(routes_data)
@@ -311,5 +359,5 @@ async def list_routes_by_path(path_id: int, db: AsyncSession) -> Dict[str, Any]:
     except Exception as e:
         return error_response(
             error=str(e),
-            message=f"Failed to fetch routes for path_id {path_id}"
+            message=f"Failed to fetch routes for path '{path_name}'"
         )

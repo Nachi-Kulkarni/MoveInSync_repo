@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     LANGCHAIN_PROJECT: str = "movi-transport-agent"
 
     # Claude Configuration (TICKET #5 - via OpenRouter)
-    CLAUDE_MODEL: str = "anthropic/claude-sonnet-4.5"
+    CLAUDE_MODEL: str = "z-ai/glm-4.6"
     CLAUDE_TEMPERATURE: float = 0.3
     CLAUDE_MAX_TOKENS: int = 4000
 

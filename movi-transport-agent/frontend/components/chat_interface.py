@@ -7,8 +7,12 @@ import gradio as gr
 import uuid
 import tempfile
 import os
+import sys
 from typing import List, Tuple, Optional, Dict, Any
-from ..utils import send_message_to_agent, send_confirmation, generate_tts
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import send_message_to_agent, send_confirmation, generate_tts
 
 
 def create_chat_interface(page_name: str) -> dict:
@@ -36,7 +40,8 @@ def create_chat_interface(page_name: str) -> dict:
             label="Chat with Movi",
             height=400,
             bubble_full_width=False,
-            avatar_images=(None, "🤖")
+            avatar_images=(None, "🤖"),
+            type="tuples"  # Using tuples format for compatibility
         )
 
         # Text input row
@@ -116,7 +121,7 @@ def create_chat_interface(page_name: str) -> dict:
         """
         # Don't process empty messages
         if not user_input.strip() and not audio and not image and not video:
-            return history, "", None, gr.update(visible=False), None, None
+            return history, "", None, "", None, gr.update(visible=False)
 
         # Add user message to history
         history = history + [[user_input, None]]
@@ -134,7 +139,7 @@ def create_chat_interface(page_name: str) -> dict:
         if error:
             # Show error in chat
             history[-1][1] = f"❌ Error: {error}"
-            return history, "", None, gr.update(visible=False), None, None
+            return history, "", None, "", None, gr.update(visible=False)
 
         # Check if confirmation is required
         if response.get("requires_confirmation", False):
@@ -163,9 +168,9 @@ def create_chat_interface(page_name: str) -> dict:
                 history,
                 "",
                 None,
-                gr.update(visible=True, value=formatted_msg),
+                formatted_msg,
                 pending_data,
-                None
+                gr.update(visible=True)
             )
 
         # Normal response
@@ -182,7 +187,7 @@ def create_chat_interface(page_name: str) -> dict:
                     tmp.write(audio_bytes)
                     audio_output = tmp.name
 
-        return history, "", audio_output, gr.update(visible=False), None, None
+        return history, "", audio_output, "", None, gr.update(visible=False)
 
     def handle_confirmation_yes(
         history: List[Tuple[str, str]],
@@ -191,7 +196,7 @@ def create_chat_interface(page_name: str) -> dict:
     ) -> Tuple[List[Tuple[str, str]], Dict, Dict, Optional[str], Optional[str]]:
         """Handle user confirming the action."""
         if not pending_data:
-            return history, gr.update(visible=False), None, None, None
+            return history, gr.update(visible=False), None, None, ""
 
         # Send confirmation to backend
         response, error = send_confirmation(
@@ -203,7 +208,7 @@ def create_chat_interface(page_name: str) -> dict:
 
         if error:
             history = history + [["[Confirmation]", f"❌ Error: {error}"]]
-            return history, gr.update(visible=False), None, None, None
+            return history, gr.update(visible=False), None, None, ""
 
         # Add agent response
         agent_response = response.get("response", "Action completed.")
@@ -218,7 +223,7 @@ def create_chat_interface(page_name: str) -> dict:
                     tmp.write(audio_bytes)
                     audio_output = tmp.name
 
-        return history, gr.update(visible=False), None, audio_output, None
+        return history, gr.update(visible=False), None, audio_output, ""
 
     def handle_confirmation_no(
         history: List[Tuple[str, str]],

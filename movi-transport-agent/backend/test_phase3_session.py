@@ -168,7 +168,7 @@ async def test_session_model():
 
         try:
             response = await client.chat_completion(
-                model="anthropic/claude-sonnet-4.5",
+                model="z-ai/glm-4.6",
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1000,

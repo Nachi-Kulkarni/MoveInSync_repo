@@ -13,7 +13,7 @@ from app.models.vehicle import Vehicle
 from .base import success_response, error_response
 
 
-async def remove_vehicle_from_trip(trip_id: int, db: AsyncSession) -> Dict[str, Any]:
+async def remove_vehicle_from_trip(trip_id, db: AsyncSession) -> Dict[str, Any]:
     """
     Remove vehicle and driver assignment from a trip (delete deployment).
 
@@ -23,7 +23,7 @@ async def remove_vehicle_from_trip(trip_id: int, db: AsyncSession) -> Dict[str, 
     if the trip has any bookings.
 
     Args:
-        trip_id: The trip ID to remove vehicle from
+        trip_id: The trip ID (int) or display_name (str) to remove vehicle from
         db: Database session
 
     Returns:
@@ -41,7 +41,25 @@ async def remove_vehicle_from_trip(trip_id: int, db: AsyncSession) -> Dict[str, 
     check_consequences_node if the trip has bookings.
     """
     try:
-        # Verify trip exists
+        # Resolve trip_id (can be int or string name)
+        if isinstance(trip_id, str):
+            # Try to convert to int first
+            try:
+                trip_id = int(trip_id)
+            except ValueError:
+                # It's a trip name, look it up
+                trip_lookup_result = await db.execute(
+                    select(DailyTrip).where(DailyTrip.display_name == trip_id)
+                )
+                trip = trip_lookup_result.scalar_one_or_none()
+                if not trip:
+                    return error_response(
+                        error=f"Trip '{trip_id}' not found",
+                        message="Trip not found in database"
+                    )
+                trip_id = trip.trip_id
+
+        # Verify trip exists (if we have an int ID)
         trip_result = await db.execute(
             select(DailyTrip).where(DailyTrip.trip_id == trip_id)
         )

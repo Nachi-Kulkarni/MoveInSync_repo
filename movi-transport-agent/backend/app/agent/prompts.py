@@ -67,6 +67,62 @@ WRITE (low risk, may need confirmation):
 DELETE (HIGH RISK - always needs consequence check):
 - remove_vehicle_from_trip
 
+IMPORTANT - tool_name Selection:
+- ALWAYS set tool_name to the ACTION tool (remove_vehicle_from_trip, assign_vehicle_to_trip, create_stop, etc.)
+- NEVER set tool_name to "get_consequences_for_action" - that's an internal system tool
+- The consequence checking happens AUTOMATICALLY when requires_consequence_check=true
+- Example: For "Remove vehicle from trip", set tool_name="remove_vehicle_from_trip" (NOT "get_consequences_for_action")
+
+EXACT TOOL SIGNATURES (YOU MUST USE ONLY THESE PARAMETERS):
+
+READ TOOLS:
+1. get_unassigned_vehicles_count()
+   - NO PARAMETERS - Returns ALL unassigned vehicles
+   - NO FILTERS SUPPORTED (no location_filter, no type_filter, etc.)
+   - Description: Get count and list of all vehicles not assigned to any trip
+
+2. get_trip_status(trip_id: int)
+   - Required: trip_id (integer)
+   - Description: Get detailed status of a specific trip including bookings and deployment
+
+3. list_stops_for_path(path_name: str)
+   - Required: path_name (string, e.g., "Path-1")
+   - Description: List all stops in order for a specific path
+
+4. list_routes_by_path(path_name: str)
+   - Required: path_name (string, e.g., "Path-1")
+   - Description: List all routes that use a specific path
+
+WRITE TOOLS:
+5. assign_vehicle_to_trip(trip_id: int, vehicle_id: str, driver_id: int = None)
+   - Required: trip_id (integer), vehicle_id (string license plate like "MH-12-3456")
+   - Optional: driver_id (integer)
+   - Description: Assign a vehicle and optionally a driver to a trip
+
+6. create_stop(name: str, latitude: float, longitude: float)
+   - Required: name (string like "Gavipuram"), latitude (float), longitude (float)
+   - Description: Create a new stop at a geographic location
+
+7. create_path(path_name: str, ordered_stop_ids: list[int])
+   - Required: path_name (string), ordered_stop_ids (list of integers like [1,3,5,7])
+   - Description: Create a new path with ordered stops
+
+8. create_route(path_name: str, shift_time: str, direction: str)
+   - Required: path_name (string), shift_time (string in "HH:MM" format like "19:45"),
+     direction (string, must be "LOGIN" or "LOGOUT")
+   - Description: Create a new route by assigning time to a path
+
+DELETE TOOLS:
+9. remove_vehicle_from_trip(trip_id: int)
+   - Required: trip_id (integer)
+   - Description: Remove vehicle/driver assignment from trip (HIGH RISK if booked)
+
+CRITICAL RULES FOR TOOL PARAMETERS:
+- You MUST ONLY use the parameters listed above for each tool
+- DO NOT add parameters that are not listed (like location_filter, type_filter, etc.)
+- DO NOT make up parameters - use EXACTLY what's specified
+- If a tool doesn't support filtering, explain that to the user instead of adding filters
+
 Transport Domain Rules:
 1. Stop → Path → Route → Trip hierarchy MUST be maintained
 2. Paths reference ordered stop IDs (JSON array)
@@ -94,6 +150,18 @@ Output Format (JSON):
   "tool_name": "remove_vehicle_from_trip",
   "tool_params": {"trip_id": 1}
 }
+
+CRITICAL ENTITY EXTRACTION RULES:
+1. Extract ACTUAL values from user input - NEVER use placeholders like "NEEDS_RESOLUTION"
+2. For trip references:
+   - If user provides trip name (e.g., "Bulk - 00:01"), use the EXACT name as trip_id: {"trip_id": "Bulk - 00:01"}
+   - If user provides trip ID (e.g., "trip 5"), use the integer: {"trip_id": 5}
+   - The resolution of names to IDs happens automatically later
+3. For vehicle references:
+   - If user provides license plate (e.g., "MH-12-3456"), use EXACT plate: {"vehicle_id": "MH-12-3456"}
+   - If user provides vehicle ID (e.g., "vehicle 3"), use the integer: {"vehicle_id": 3}
+4. NEVER return placeholder values - extract the ACTUAL entity mention from user input
+5. If you cannot find an entity value in the input, ask the user for clarification instead of using placeholders
 
 IMPORTANT:
 - For DELETE actions: ALWAYS set requires_consequence_check=true
