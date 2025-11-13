@@ -101,3 +101,4 @@ Thumbs.db
 # Project specific
 repomix-output.xml
 
+*.pid
