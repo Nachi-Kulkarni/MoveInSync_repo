@@ -122,10 +122,10 @@ def create_dashboard_tab() -> dict:
                     value="<div style='padding: 20px; text-align: center;'>Loading map...</div>"
                 )
 
-        # Chat interface placeholder
+        # Chat interface
         gr.Markdown("---")
-        gr.Markdown("### 💬 Movi Assistant")
-        gr.Markdown("*Chat interface will be added in TICKET #9*")
+        from .chat_interface import create_chat_interface
+        chat_components = create_chat_interface("busDashboard")
 
     # Return components for external access
     return {
@@ -134,5 +134,6 @@ def create_dashboard_tab() -> dict:
         "map_display": map_display,
         "refresh_btn": refresh_btn,
         "load_data_fn": load_dashboard_data,
-        "refresh_fn": refresh_dashboard
+        "refresh_fn": refresh_dashboard,
+        "chat_components": chat_components
     }

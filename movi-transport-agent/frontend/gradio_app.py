@@ -111,7 +111,7 @@ def create_app():
             ---
             **Movi Transport Agent** | Built with LangGraph, Claude Sonnet 4.5, and Gemini 2.5 Pro
 
-            *Chat interface with multimodal input and TTS will be added in TICKET #9*
+            🎤 **Features:** Multimodal Input (Text, Voice, Image, Video) | 🔊 Text-to-Speech | ⚠️ Consequence-Aware Actions
             """
         )
 

@@ -113,10 +113,10 @@ def create_routes_tab() -> dict:
                     visible=False
                 )
 
-        # Chat interface placeholder
+        # Chat interface
         gr.Markdown("---")
-        gr.Markdown("### 💬 Movi Assistant")
-        gr.Markdown("*Chat interface will be added in TICKET #9*")
+        from .chat_interface import create_chat_interface
+        chat_components = create_chat_interface("manageRoute")
 
     # Return components for external access
     return {
@@ -129,5 +129,6 @@ def create_routes_tab() -> dict:
         "load_data_fn": load_routes_data,
         "refresh_fn": refresh_routes,
         "filter_fn": filter_routes,
-        "create_route_fn": handle_create_route
+        "create_route_fn": handle_create_route,
+        "chat_components": chat_components
     }

@@ -20,11 +20,21 @@ from app.schemas.agent import (
 )
 from app.agent.graph import run_movi_agent
 from app.services.session_service import session_service
+from app.utils.tts import get_tts_client
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+class TTSRequest(BaseModel):
+    """Request schema for TTS generation."""
+    text: str
+    voice: str = "coral"
+    streaming: bool = False
 
 
 @router.post(
@@ -455,6 +465,88 @@ async def cleanup_expired_sessions(session_id: str = None) -> Dict[str, int]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Session cleanup failed: {str(e)}",
+        )
+
+
+@router.post(
+    "/tts",
+    status_code=status.HTTP_200_OK,
+    summary="Generate Text-to-Speech audio",
+    description="""
+    Generate speech audio from text using OpenAI TTS.
+
+    This endpoint:
+    - Converts text responses to speech using OpenAI's TTS model
+    - Returns audio in MP3 format (default) or streaming WAV
+    - Supports multiple voices (default: "coral" - warm and friendly)
+    - Used by frontend for automatic voice output of agent responses
+
+    Response:
+    - Non-streaming: Returns audio/mp3 file
+    - Streaming: Returns audio/wav stream for real-time playback
+    """,
+)
+async def generate_tts(request: TTSRequest):
+    """
+    Generate TTS audio from text.
+
+    Args:
+        request: TTSRequest with text, voice, and streaming options
+
+    Returns:
+        StreamingResponse with audio content
+
+    Raises:
+        HTTPException: If TTS generation fails
+    """
+    try:
+        logger.info(f"TTS request received: text_length={len(request.text)}, voice={request.voice}, streaming={request.streaming}")
+
+        tts_client = get_tts_client()
+
+        if request.streaming:
+            # Streaming response for real-time playback
+            async def audio_stream():
+                async for chunk in tts_client.generate_speech_streaming(
+                    text=request.text,
+                    voice=request.voice,
+                    response_format="wav"
+                ):
+                    yield chunk
+
+            return StreamingResponse(
+                audio_stream(),
+                media_type="audio/wav",
+                headers={
+                    "Content-Disposition": "inline; filename=speech.wav",
+                    "Cache-Control": "no-cache"
+                }
+            )
+        else:
+            # Non-streaming response (MP3)
+            audio_bytes = await tts_client.generate_speech(
+                text=request.text,
+                voice=request.voice,
+                response_format="mp3"
+            )
+
+            logger.info(f"TTS generated successfully: audio_size={len(audio_bytes)} bytes")
+
+            return StreamingResponse(
+                iter([audio_bytes]),
+                media_type="audio/mpeg",
+                headers={
+                    "Content-Disposition": "inline; filename=speech.mp3",
+                    "Content-Length": str(len(audio_bytes)),
+                    "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"TTS generation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"TTS generation failed: {str(e)}",
         )
 
 
