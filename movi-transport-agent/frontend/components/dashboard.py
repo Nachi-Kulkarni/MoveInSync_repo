@@ -109,8 +109,7 @@ def create_dashboard_tab() -> dict:
                     datatype=["str", "str", "str"],
                     label="Trip List",
                     interactive=False,
-                    wrap=True,
-                    height=400
+                    wrap=True
                 )
 
                 refresh_btn = gr.Button("🔄 Refresh Data", variant="secondary", size="sm")

@@ -103,8 +103,7 @@ def create_routes_tab() -> dict:
                     datatype=["str", "str", "str", "str", "str", "str", "str"],
                     label="Route List",
                     interactive=False,
-                    wrap=True,
-                    height=500
+                    wrap=True
                 )
 
                 # Status message

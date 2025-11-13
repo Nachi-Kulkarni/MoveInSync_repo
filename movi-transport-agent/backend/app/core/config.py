@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
 
     # CORS (can be JSON array or comma-separated string)
-    BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:7860"
 
     # LangSmith Observability (TICKET #5)
     LANGCHAIN_TRACING_V2: str = "true"

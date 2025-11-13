@@ -1353,8 +1353,377 @@ curl "http://localhost:8000/api/v1/agent/session/test/history"
 
 ---
 
+## **CRITICAL FIXES & TROUBLESHOOTING GUIDE**
+**Added: 2025-11-13**
+
+This section documents critical errors discovered during implementation and their fixes. **Read this before implementing any tickets to avoid repeating these mistakes.**
+
+---
+
+### **FIX #1: OpenRouter API 403 Forbidden** ❌→✅
+**Error:** All agent requests failing with `Client error '403 Forbidden' for url 'https://openrouter.ai/api/v1/chat/completions'`
+
+**Root Cause:** Old or invalid OpenRouter API key in `.env` file
+
+**Fix:**
+```bash
+# Update backend/.env with valid API key
+OPENROUTER_API_KEY=sk-or-v1-[your-valid-key-here]
+
+# Restart backend server after updating
+pkill -f uvicorn
+cd backend && ../venv/bin/python3 -m uvicorn main:app --reload
+```
+
+**Verification:**
+```bash
+# Test API call works
+curl -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"Test","session_id":"test","context":{"page":"busDashboard"}}'
+```
+
+**Prevention:** Always verify OpenRouter API key is valid before starting development.
+
+---
+
+### **FIX #2: Tool Execution Parameter Mismatch** ❌→✅
+**Error:** `create_stop() got an unexpected keyword argument 'stop_name'`
+
+**Root Cause:**
+- Example in `app/agent/prompts.py` line 89 showed `"stop_name": "Gavipuram"`
+- But `create_stop()` function expects `name: str` parameter (not `stop_name`)
+- LLM was following the incorrect prompt example
+
+**Fix:**
+```python
+# File: backend/app/agent/prompts.py
+# Line 89 (in CLASSIFICATION_SYSTEM_PROMPT example)
+
+# BEFORE (WRONG):
+"extracted_entities": {
+    "trip_id": 1,
+    "vehicle_id": "MH-12-3456",
+    "stop_name": "Gavipuram",  # ❌ WRONG - tool expects "name"
+    ...
+}
+
+# AFTER (CORRECT):
+"extracted_entities": {
+    "trip_id": 1,
+    "vehicle_id": "MH-12-3456",
+    "name": "Gavipuram",  # ✅ CORRECT - matches create_stop(name=...)
+    ...
+}
+```
+
+**Verification:**
+```bash
+# Test stop creation works
+curl -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"Create a stop called TestStop at 12.97, 77.64","session_id":"test","context":{"page":"manageRoute"}}'
+```
+
+**Prevention:** Always verify prompt examples match actual tool function signatures from `app/tools/`.
+
+---
+
+### **FIX #3: Model Configuration Causing Timeouts** ❌→✅
+**Error:** All tests failing with `httpx.ReadTimeout` errors, requests taking 60+ seconds
+
+**Root Cause:** Model was set to `moonshotai/kimi-k2-thinking` (slow Chinese thinking model that takes minutes per response)
+
+**Fix:**
+```python
+# File: backend/app/core/config.py
+# Line 38
+
+# BEFORE (WRONG):
+CLAUDE_MODEL: str = "moonshotai/kimi-k2-thinking"  # ❌ SLOW - Takes 2-5 minutes per response
+
+# AFTER (CORRECT):
+CLAUDE_MODEL: str = "anthropic/claude-sonnet-4.5"  # ✅ FAST - Responds in 1-3 seconds
+```
+
+```bash
+# Also update backend/.env file
+# Line 22
+
+# BEFORE (WRONG):
+CLAUDE_MODEL=moonshotai/kimi-k2-thinking
+
+# AFTER (CORRECT):
+CLAUDE_MODEL=anthropic/claude-sonnet-4.5
+```
+
+**Verification:**
+```bash
+# Test response time is under 5 seconds
+time curl -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"How many vehicles?","session_id":"test","context":{"page":"busDashboard"}}'
+# Should complete in < 5 seconds
+```
+
+**Prevention:**
+- Always use fast models for production: `anthropic/claude-sonnet-4.5` or `google/gemini-2.5-pro`
+- Only use thinking models (`o1-preview`, `kimi-k2-thinking`) when you need deep reasoning and can wait 2-5 minutes
+- Check model speed at https://openrouter.ai/models before configuring
+
+---
+
+### **FIX #4: Metadata Null in API Response** ❌→✅
+**Error:** Tool execution succeeded but `"metadata": null` in API response, preventing UI actions from being generated
+
+**Root Cause:** `tool_results` wasn't flowing through the pipeline:
+1. `format_response_node` returned `tool_results` but didn't include it in return dict
+2. `run_movi_agent()` didn't extract `tool_results` from `final_state`
+
+**Fix:**
+```python
+# File: backend/app/agent/nodes/format.py
+# Lines 196 and 296
+
+# In _format_success_response() return statement (line 196):
+return {
+    "response": formatted_response,
+    "response_type": "success",
+    "error": None,
+    "tool_results": tool_results,  # ✅ ADD THIS LINE - Pass through for API metadata
+}
+
+# In _generate_fallback_success_response() return statement (line 296):
+return {
+    "response": response,
+    "response_type": "success",
+    "error": None,
+    "tool_results": tool_results,  # ✅ ADD THIS LINE - Pass through for API metadata
+}
+```
+
+```python
+# File: backend/app/agent/graph.py
+# Line 263 (in run_movi_agent() function)
+
+# Extract response
+response = {
+    "response": final_state.get("response", ""),
+    "response_type": final_state.get("response_type", "info"),
+    "session_id": session_id,
+    "intent": final_state.get("intent"),
+    "action_type": final_state.get("action_type"),
+    "tool_name": final_state.get("tool_name"),
+    "execution_success": final_state.get("execution_success"),
+    "requires_confirmation": final_state.get("requires_confirmation", False),
+    "confirmation_message": final_state.get("confirmation_message"),
+    "error": final_state.get("error"),
+    "tool_results": final_state.get("tool_results"),  # ✅ ADD THIS LINE - Include for metadata/UI actions
+}
+```
+
+**Verification:**
+```bash
+# Test metadata is populated
+curl -s -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"How many vehicles?","session_id":"test","context":{"page":"busDashboard"}}' \
+  | python3 -c "import sys, json; d=json.load(sys.stdin); print(f'Metadata exists: {bool(d.get(\"metadata\"))}')"
+# Should print: Metadata exists: True
+```
+
+**Prevention:** Ensure all node return values include fields that need to flow to the API response. Check graph.py extraction logic matches node outputs.
+
+---
+
+### **FIX #5: Response Fields Missing in Final State** ❌→✅
+**Error:** `format_response_node` returned `response` and `response_type` but they were `None` in `final_state`
+
+**Root Cause:** `AgentState` TypedDict didn't have `response` and `response_type` fields defined, only had `final_response`
+
+**Debug Output Showed:**
+```
+[FORMAT] _format_success_response returned response_type: success
+[run_movi_agent] response_type in final_state: None
+[run_movi_agent] response in final_state: EMPTY
+```
+
+**Fix:**
+```python
+# File: backend/app/agent/state.py
+# Lines 57-58 (add these fields to AgentState TypedDict)
+
+class AgentState(TypedDict, total=False):
+    # ... other fields ...
+
+    # ========== Response Formatting (Node 6) ==========
+    response: Optional[str]  # ✅ ADD THIS - Human-readable response to user
+    response_type: Optional[Literal["success", "error", "confirmation", "info"]]  # ✅ ADD THIS - Response type for UI
+    final_response: Optional[str]  # Legacy field (for backwards compatibility)
+    response_metadata: Optional[Dict[str, Any]]  # Additional UI hints
+```
+
+**Verification:**
+```bash
+# Test natural language response works
+curl -s -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"How many vehicles?","session_id":"test","context":{"page":"busDashboard"}}' \
+  | python3 -c "import sys, json; d=json.load(sys.stdin); print(f'Response: {d.get(\"response\")}')"
+# Should print natural language response (not empty)
+```
+
+**Prevention:** Always ensure AgentState TypedDict includes all fields that nodes return. Run type checking before deployment.
+
+---
+
+### **FIX #6: Session Cleanup Endpoint 405 Method Not Allowed** ❌→✅
+**Error:** Test failing with `405 Method Not Allowed` when calling `POST /api/v1/agent/session/cleanup`
+
+**Root Cause:** Route was defined as `/session/{session_id}/cleanup` with path parameter, but function didn't use it and test was calling `/session/cleanup` without session_id
+
+**Fix:**
+```python
+# File: backend/app/api/v1/agent.py
+# Line ~250
+
+# BEFORE (WRONG):
+@router.post("/session/{session_id}/cleanup", ...)
+async def cleanup_expired_sessions(session_id: str = None):
+    ...
+
+# AFTER (CORRECT):
+@router.post("/session/cleanup", ...)  # ✅ Removed path parameter
+async def cleanup_expired_sessions(session_id: str = None):
+    """Clean up expired sessions based on TTL."""
+    cleaned_count = await session_service.cleanup_expired_sessions()
+    return {"cleaned_sessions": cleaned_count}
+```
+
+**Verification:**
+```bash
+# Test cleanup endpoint works
+curl -X POST http://localhost:8000/api/v1/agent/session/cleanup
+# Should return: {"cleaned_sessions": 0}
+```
+
+**Prevention:** Ensure route path matches test expectations. Review all endpoint definitions before testing.
+
+---
+
+### **FIX #7: UI Action Warning for Failed Operations** ⚠️ (Expected Behavior)
+**Warning:** `⚠️ No UI action for WRITE (unexpected)` appears in test output
+
+**Analysis:**
+- Test was creating stop without coordinates: `"Create a stop called UI Test Stop"`
+- Tool execution failed: `create_stop() missing 2 required positional arguments: 'latitude' and 'longitude'`
+- No UI action generated because `execution_success: False`
+
+**Conclusion:** ✅ **This is correct behavior** - Failed operations shouldn't trigger UI refresh
+
+**Manual Test Confirms UI Actions Work:**
+```bash
+# Test with proper coordinates
+echo '{"session_id":"test-ui","user_input":"Create a stop called TestStop at coordinates 12.99, 77.99","context":{"page":"manageRoute"}}' > test_ui.json
+
+curl -s -X POST http://localhost:8000/api/v1/agent/message \
+  -H "Content-Type: application/json" \
+  -d @test_ui.json \
+  | python3 -c "import sys, json; d=json.load(sys.stdin); print(f'UI action: {d.get(\"ui_action\")}')"
+
+# Result: UI action: {'type': 'refresh_ui', 'target': 'create_stop', 'message': 'Data updated by create_stop'}
+```
+
+**Prevention:** Always provide all required parameters in test cases. Failed operations intentionally don't generate UI actions.
+
+---
+
+### **SUMMARY OF CRITICAL CONFIGURATION VALUES**
+
+```bash
+# backend/.env - CRITICAL SETTINGS
+OPENROUTER_API_KEY=sk-or-v1-[YOUR-VALID-KEY]  # Must be valid OpenRouter key
+CLAUDE_MODEL=anthropic/claude-sonnet-4.5       # Fast model for production
+GEMINI_MODEL=google/gemini-2.5-pro             # Multimodal processing
+```
+
+```python
+# backend/app/core/config.py - CRITICAL SETTINGS
+CLAUDE_MODEL: str = "anthropic/claude-sonnet-4.5"  # Line 38 - MUST be fast model
+GEMINI_MODEL: str = "google/gemini-2.5-pro"        # Line 39 - For multimodal
+DATABASE_PATH: Path = BASE_DIR / "database" / "transport.db"  # Absolute path
+```
+
+```python
+# backend/app/agent/prompts.py - CRITICAL PARAMETER NAMES
+# Line 89 - Entity extraction example
+"extracted_entities": {
+    "name": "Gavipuram",           # ✅ For create_stop - NOT "stop_name"
+    "path_name": "Path-1",         # ✅ For create_path
+    "shift_time": "19:45",         # ✅ For create_route
+    "trip_id": 1,                  # ✅ For all trip operations
+    "vehicle_id": "MH-12-3456"     # ✅ For vehicle operations
+}
+```
+
+---
+
+### **DEBUGGING CHECKLIST**
+
+**If agent requests fail:**
+1. ✅ Check OpenRouter API key is valid (`backend/.env` line 9)
+2. ✅ Check model is fast (`backend/app/core/config.py` line 38)
+3. ✅ Check backend server is running (`curl http://localhost:8000/health`)
+4. ✅ Check database file exists (`ls backend/database/transport.db`)
+5. ✅ Check logs for errors (`tail -f backend/server.log`)
+
+**If tool execution fails:**
+1. ✅ Check prompt examples match tool signatures (`app/agent/prompts.py` vs `app/tools/`)
+2. ✅ Check parameter names are correct (use `name` not `stop_name`)
+3. ✅ Check TOOL_REGISTRY has the tool (`from app.tools import TOOL_REGISTRY`)
+4. ✅ Check database has required data (`sqlite3 backend/database/transport.db`)
+
+**If metadata is null:**
+1. ✅ Check `format.py` returns `tool_results` (lines 196, 296)
+2. ✅ Check `graph.py` extracts `tool_results` (line 263)
+3. ✅ Check `state.py` has `tool_results` field defined
+4. ✅ Check `execute.py` populates `tool_results` correctly
+
+**If response is empty:**
+1. ✅ Check `state.py` has `response` and `response_type` fields (lines 57-58)
+2. ✅ Check `format.py` returns `response` and `response_type`
+3. ✅ Check `graph.py` extracts `response` from `final_state`
+4. ✅ Check Claude API is not rate-limited
+
+---
+
+### **COMMON PITFALLS TO AVOID**
+
+1. ❌ **Using slow thinking models** → Use `anthropic/claude-sonnet-4.5` for production
+2. ❌ **Mismatched parameter names** → Always verify prompt examples match tool signatures
+3. ❌ **Forgetting to add fields to AgentState** → Add all node return fields to TypedDict
+4. ❌ **Not passing through tool_results** → Ensure format.py and graph.py include it
+5. ❌ **Using relative database paths** → Use absolute paths via `Path(__file__).resolve()`
+6. ❌ **Expecting UI actions for failed operations** → Only successful WRITE operations generate UI actions
+7. ❌ **Using expired OpenRouter API keys** → Test API key before starting development
+
+---
+
+### **TESTING BEST PRACTICES**
+
+**Always test after implementing:**
+1. ✅ Run full test suite: `pytest backend/tests/`
+2. ✅ Test API endpoints: `curl http://localhost:8000/api/v1/agent/message`
+3. ✅ Check logs: `grep ERROR backend/server.log`
+4. ✅ Verify database: `sqlite3 backend/database/transport.db ".tables"`
+5. ✅ Test with different inputs: text, multimodal, high-risk operations
+6. ✅ Verify metadata flow: Check `metadata` field in API responses
+7. ✅ Test session persistence: Check `agent_sessions` table has data
+
+---
+
 ## **Next Steps for TICKET #8 (React Frontend)**
-With TICKET #7 fully enhanced, the React frontend now has:
+With TICKET #7 fully enhanced and all critical fixes documented, the React frontend now has:
 
 1. **Complete API integration** - All endpoints working with real data
 2. **Session management** - Multi-turn conversations with history
@@ -1362,7 +1731,8 @@ With TICKET #7 fully enhanced, the React frontend now has:
 4. **Multimodal input** - Text, audio, image, video support
 5. **Error handling** - Comprehensive error responses
 6. **TTS ready** - audio_url field prepared for TICKET #9
+7. **Troubleshooting guide** - All known issues documented and fixed
 
-The frontend can now be built with full confidence that all backend APIs are production-ready and enhanced beyond the original requirements.
+The frontend can now be built with full confidence that all backend APIs are production-ready, enhanced beyond the original requirements, and all critical pitfalls are documented for future developers.
 
 ---
