@@ -1,0 +1,37 @@
+flowchart TD
+    A[Input: Text/Voice/Image] --> B[Preprocessing Layer]
+    B --> B1[Speech-to-Text]
+    B --> B2[Image Quick Scan]
+    B --> B3[Context Injection]
+    B1 --> C[Intent Understanding<br/>Claude Sonnet 4.5]
+    B2 --> C
+    B3 --> C
+    C --> C1[Extract: action, entities, page context]
+    C --> C2[Classify: read/create/delete/update]
+    C1 --> D[⭐ Consequence Checker ⭐<br/>THE STAR NODE]
+    C2 --> D
+    D --> D1[Query DB for implications]
+    D --> D2[Check: bookings? dependencies? conflicts?]
+    D --> D3[Risk Score: none/low/high]
+    D1 --> E{Risk Level?}
+    D2 --> E
+    D3 --> E
+    E -->|Low/No Risk| F[Execute Action]
+    E -->|High Risk| G[Confirmation Dialog]
+    G --> G1[Explain consequences]
+    G --> G2[Offer alternatives]
+    G --> G3[Wait for response]
+    G3 --> H{User Response}
+    H -->|Yes| I[Execute]
+    H -->|No| J[Cancel]
+    H -->|Modify| K[Replan]
+    F --> L[Response Generator]
+    I --> L
+    J --> L
+    K --> C
+    L --> M[TTS + UI Update]
+    
+    style D fill:#4a9eff,stroke:#2563eb,stroke-width:3px,color:#fff
+    style E fill:#fbbf24,stroke:#f59e0b,stroke-width:2px
+    style M fill:#10b981,stroke:#059669,stroke-width:2px
+
