@@ -46,19 +46,30 @@ from app.agent.edges import (
 )
 
 
-# LangSmith tracing configuration (optional)
-# Set these environment variables for LangSmith observability
-ENABLE_LANGSMITH = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+# LangSmith tracing configuration
+# Force enable tracing for observability
+def _setup_langsmith():
+    """Setup LangSmith tracing if API key is available"""
+    try:
+        from app.core.config import settings as config_settings
+        api_key = os.getenv("LANGCHAIN_API_KEY", config_settings.LANGCHAIN_API_KEY)
+    except (ImportError, AttributeError):
+        api_key = os.getenv("LANGCHAIN_API_KEY", "")
+    
+    if api_key and api_key.strip():
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+        os.environ["LANGCHAIN_API_KEY"] = api_key
+        os.environ["LANGCHAIN_PROJECT"] = "movi-transport-agent"
+        print("✅ LangSmith tracing ENABLED for Movi Transport Agent")
+        print(f"   Project: movi-transport-agent")
+        print(f"   Endpoint: https://api.smith.langchain.com")
+        return True
+    else:
+        print("⚠️  LangSmith tracing DISABLED (no API key found)")
+        return False
 
-if ENABLE_LANGSMITH:
-    os.environ["LANGCHAIN_ENDPOINT"] = os.getenv(
-        "LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"
-    )
-    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
-    os.environ["LANGCHAIN_PROJECT"] = os.getenv(
-        "LANGCHAIN_PROJECT", "movi-transport-agent"
-    )
-    print("LangSmith tracing enabled for Movi Transport Agent")
+ENABLE_LANGSMITH = _setup_langsmith()
 
 
 def create_movi_agent_graph() -> StateGraph:
