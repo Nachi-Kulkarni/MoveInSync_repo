@@ -54,26 +54,35 @@ def create_chat_interface(page_name: str) -> dict:
             )
             send_btn = gr.Button("Send", variant="primary", scale=1)
 
-        # Multimodal inputs (collapsible)
-        with gr.Accordion("🎤 Multimodal Inputs", open=False):
-            with gr.Row():
-                audio_input = gr.Audio(
-                    sources=["microphone"],
-                    type="filepath",
-                    label="Voice Input",
-                    show_label=True
-                )
+        # Multimodal inputs (collapsible) - NOW OPEN BY DEFAULT
+        with gr.Accordion("📎 Upload Image/Audio/Video (optional)", open=True):
+            gr.Markdown("""
+💡 **How to use:**
+1. Upload an image (e.g., screenshot of dashboard)
+2. Type your question in the text box above
+3. Click **Send** → Both image and text will be sent together!
+4. The upload will clear automatically after sending
+""")
 
             with gr.Row():
                 image_input = gr.Image(
                     type="filepath",
-                    label="Image Upload (e.g., screenshot)",
+                    label="📸 Image Upload (e.g., screenshot of dashboard)",
+                    show_label=True,
+                    height=150
+                )
+
+            with gr.Row():
+                audio_input = gr.Audio(
+                    sources=["microphone"],
+                    type="filepath",
+                    label="🎤 Voice Input",
                     show_label=True
                 )
 
             with gr.Row():
                 video_input = gr.Video(
-                    label="Video Upload",
+                    label="🎥 Video Upload",
                     show_label=True
                 )
 
@@ -112,16 +121,30 @@ def create_chat_interface(page_name: str) -> dict:
         video: Optional[str],
         tts_on: bool,
         pending_confirmation: Optional[Dict]
-    ) -> Tuple[List[Tuple[str, str]], str, Optional[str], Dict, Dict, Optional[str]]:
+    ) -> Tuple[List[Tuple[str, str]], str, Optional[str], Dict, Dict, Optional[str], None, None, None]:
         """
         Handle user message and get agent response.
 
         Returns:
-            Tuple of (updated_history, cleared_input, audio_output, confirmation_row_update, pending_confirmation, error)
+            Tuple of (updated_history, cleared_input, audio_output, confirmation_message,
+                     pending_confirmation, confirmation_row, cleared_image, cleared_audio, cleared_video)
         """
+        print("\n" + "🌟"*40)
+        print("📲 CHAT INTERFACE - handle_message() called")
+        print("🌟"*40)
+        print(f"💬 User Input: {user_input}")
+        print(f"🔑 Session ID: {session_id}")
+        print(f"🎤 Audio: {audio}")
+        print(f"📸 Image: {image}")
+        print(f"🎥 Video: {video}")
+        print(f"🔊 TTS Enabled: {tts_on}")
+        print(f"⏳ Pending Confirmation: {pending_confirmation is not None}")
+        print("🌟"*40 + "\n")
+
         # Don't process empty messages
         if not user_input.strip() and not audio and not image and not video:
-            return history, "", None, gr.update(), None, gr.update(visible=False)
+            print("⚠️  Empty message - skipping")
+            return history, "", None, gr.update(), None, gr.update(visible=False), None, None, None
 
         # Check if user is responding to pending confirmation with text
         if pending_confirmation and user_input.strip().lower() in ['yes', 'y', 'confirm', 'proceed']:
@@ -129,17 +152,18 @@ def create_chat_interface(page_name: str) -> dict:
             history = history + [[user_input, None]]
             # Treat as confirmation YES
             hist, conf_row, pend, audio, conf_msg = handle_confirmation_yes(history, pending_confirmation, tts_on)
-            return (hist, "", audio, gr.update(), pend, conf_row)
+            return (hist, "", audio, gr.update(), pend, conf_row, None, None, None)
         elif pending_confirmation and user_input.strip().lower() in ['no', 'n', 'cancel', 'abort']:
             # Add user's cancellation to history
             history = history + [[user_input, None]]
             # Treat as confirmation NO
             hist, conf_row, pend = handle_confirmation_no(history, pending_confirmation)
-            return (hist, "", None, gr.update(), pend, conf_row)
+            return (hist, "", None, gr.update(), pend, conf_row, None, None, None)
 
         # Add user message to history
         history = history + [[user_input, None]]
 
+        print("📤 Calling send_message_to_agent()...")
         # Send to backend
         response, error = send_message_to_agent(
             user_input=user_input,
@@ -149,11 +173,12 @@ def create_chat_interface(page_name: str) -> dict:
             image_file=image,
             video_file=video
         )
+        print(f"📥 Got response from backend. Error: {error is not None}")
 
         if error:
             # Show error in chat
             history[-1][1] = f"❌ Error: {error}"
-            return history, "", None, "", None, gr.update(visible=False)
+            return history, "", None, "", None, gr.update(visible=False), None, None, None
 
         # Check if confirmation is required
         if response.get("requires_confirmation", False):
@@ -207,11 +232,14 @@ def create_chat_interface(page_name: str) -> dict:
 
             return (
                 history,
-                "",
-                None,
+                "",  # Clear text input
+                None,  # No TTS audio
                 gr.update(value=formatted_msg),  # Update confirmation message
-                pending_data,
-                gr.update(visible=True)  # Make confirmation row with buttons visible
+                pending_data,  # Store pending confirmation
+                gr.update(visible=True),  # Make confirmation row with buttons visible
+                None,  # Clear image
+                None,  # Clear audio
+                None   # Clear video
             )
 
         # Check for errors and provide the best error message
@@ -242,7 +270,17 @@ def create_chat_interface(page_name: str) -> dict:
                     tmp.write(audio_bytes)
                     audio_output = tmp.name
 
-        return history, "", audio_output, "", None, gr.update(visible=False)
+        return (
+            history,  # Updated chat history
+            "",  # Clear text input
+            audio_output,  # TTS audio
+            "",  # Clear confirmation message
+            None,  # Clear pending confirmation
+            gr.update(visible=False),  # Hide confirmation row
+            None,  # Clear image upload
+            None,  # Clear audio upload
+            None   # Clear video upload
+        )
 
     def handle_confirmation_yes(
         history: List[Tuple[str, str]],
@@ -321,13 +359,13 @@ def create_chat_interface(page_name: str) -> dict:
     msg_submit = msg_input.submit(
         fn=handle_message,
         inputs=[msg_input, chatbot, session_id_state, audio_input, image_input, video_input, tts_enabled, pending_confirmation_state],
-        outputs=[chatbot, msg_input, tts_audio, confirmation_message, pending_confirmation_state, confirmation_row]
+        outputs=[chatbot, msg_input, tts_audio, confirmation_message, pending_confirmation_state, confirmation_row, image_input, audio_input, video_input]
     )
 
     send_btn.click(
         fn=handle_message,
         inputs=[msg_input, chatbot, session_id_state, audio_input, image_input, video_input, tts_enabled, pending_confirmation_state],
-        outputs=[chatbot, msg_input, tts_audio, confirmation_message, pending_confirmation_state, confirmation_row]
+        outputs=[chatbot, msg_input, tts_audio, confirmation_message, pending_confirmation_state, confirmation_row, image_input, audio_input, video_input]
     )
 
     confirm_yes.click(

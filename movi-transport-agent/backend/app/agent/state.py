@@ -29,6 +29,7 @@ class AgentState(TypedDict, total=False):
     input_modalities: List[str]  # ["text", "image", "audio", "video"]
     processed_input: Dict[str, Any]  # Output from GeminiMultimodalProcessor
     context: Dict[str, Any]  # Page context, session info
+    multimodal_data: Optional[Dict[str, Any]]  # Multimodal inputs (images, audio, video)
 
     # ========== Intent Classification (Node 2) ==========
     intent: Optional[str]  # "list_trips", "remove_vehicle", "create_stop", etc.
@@ -73,7 +74,8 @@ class AgentState(TypedDict, total=False):
 def create_initial_state(
     user_input: str,
     session_id: str,
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None,
+    multimodal_data: Optional[Dict[str, Any]] = None
 ) -> AgentState:
     """Create initial state for a new agent invocation."""
     return {
@@ -81,6 +83,7 @@ def create_initial_state(
         "session_id": session_id,
         "timestamp": datetime.utcnow().isoformat(),
         "context": context or {},
+        "multimodal_data": multimodal_data or {},  # ADD THIS!
         "input_modalities": [],
         "conversation_history": [],
         "requires_confirmation": False,

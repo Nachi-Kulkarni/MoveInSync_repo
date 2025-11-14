@@ -75,6 +75,36 @@ async def send_message(request: AgentMessageRequest) -> AgentResponse:
         HTTPException: If agent execution fails
     """
     try:
+        # Helper function to truncate long base64 strings for logging
+        def _truncate_multimodal_for_logging(mm_data):
+            """Truncate base64 strings in multimodal data for cleaner logs."""
+            if not mm_data:
+                return mm_data
+            
+            truncated = {}
+            for key, value in mm_data.items():
+                if isinstance(value, list):
+                    truncated[key] = [
+                        f"{str(item)[:50]}...({len(str(item))} chars)" if isinstance(item, str) and len(str(item)) > 50 
+                        else item 
+                        for item in value
+                    ]
+                elif isinstance(value, str) and len(value) > 50:
+                    truncated[key] = f"{value[:50]}...({len(value)} chars)"
+                else:
+                    truncated[key] = value
+            return truncated
+
+        print("\n" + "🌐"*50)
+        print("🌐 API ENDPOINT - /api/v1/agent/message")
+        print("🌐"*50)
+        print(f"📝 User Input: {request.user_input}")
+        print(f"🔑 Session ID: {request.session_id}")
+        print(f"📍 Context: {request.context}")
+        # Truncate base64 data to avoid cluttering logs
+        truncated_mm = _truncate_multimodal_for_logging(request.multimodal_data.model_dump() if request.multimodal_data else None)
+        print(f"📦 Multimodal Data (truncated): {truncated_mm}")
+
         logger.info(
             f"Agent message received: session={request.session_id}, "
             f"input_length={len(request.user_input)}, "
@@ -85,6 +115,15 @@ async def send_message(request: AgentMessageRequest) -> AgentResponse:
         multimodal_dict = None
         if request.multimodal_data:
             multimodal_dict = request.multimodal_data.model_dump()
+            print(f"✅ Multimodal dict created: {list(multimodal_dict.keys())}")
+            for key, val in multimodal_dict.items():
+                if isinstance(val, list):
+                    print(f"   - {key}: list with {len(val)} items")
+                elif val:
+                    print(f"   - {key}: {type(val).__name__} ({len(val) if isinstance(val, str) else 0} chars)")
+        else:
+            print(f"⚠️  No multimodal_data in request")
+        print("🌐"*50 + "\n")
 
         # Run the agent graph
         result = await run_movi_agent(
@@ -214,13 +253,24 @@ async def confirm_action(request: AgentConfirmationRequest) -> AgentResponse:
                 metadata={"cancelled": True},
             )
 
-        # User confirmed - re-run agent with user_confirmed=True
+        # User confirmed - retrieve stored state from session to preserve context
+        # This includes extracted_entities, tool_params, etc. from the original request
+        stored_session = await session_service.get_session(request.session_id)
+        
+        # Extract the stored state to preserve trip_id and other entities
+        stored_state = None
+        if stored_session and stored_session.current_state:
+            stored_state = stored_session.current_state
+            logger.info(f"Retrieved stored state for confirmation: intent={stored_state.get('intent')}")
+        
+        # Re-run agent with user_confirmed=True and preserved state
         result = await run_movi_agent(
             user_input=request.user_input,
             session_id=request.session_id,
             context=request.context,
             multimodal_data=None,
             user_confirmed=True,  # This will skip confirmation and execute
+            preserved_state=stored_state  # Pass the stored state to preserve context
         )
 
         # Convert result to AgentResponse

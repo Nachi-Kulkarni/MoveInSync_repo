@@ -118,20 +118,60 @@ async def preprocess_input_node(state: AgentState) -> Dict[str, Any]:
         - error: Error message if processing fails
     """
     try:
+        # CRITICAL: Skip preprocessing if state already has processed_input (confirmation flow)
+        # This preserves the restored state from the session
+        if state.get("user_confirmed") and state.get("processed_input"):
+            print("\n" + "⏭️ "*50)
+            print("⏭️  SKIPPING PREPROCESS - State already processed (confirmation flow)")
+            print("⏭️ "*50 + "\n")
+            return {}  # Return empty dict to preserve existing state
+        
+        print("\n" + "🔧"*50)
+        print("🔧 BACKEND PREPROCESS NODE - preprocess_input_node()")
+        print("🔧"*50)
+
         # Get input and context
         user_input = state.get("user_input", "")
         context = state.get("context", {})
+        multimodal_data = state.get("multimodal_data", {}) or {}
 
-        # Detect input type
-        has_image = context.get("image_file") or context.get("image_url") or context.get("image_base64")
-        has_audio = context.get("audio_file") or context.get("audio_base64")
-        has_video = context.get("video_file") or context.get("video_url")
+        print(f"📝 User Input: {user_input}")
+        print(f"🗂️  Context keys: {list(context.keys())}")
+        print(f"📦 Multimodal data keys: {list(multimodal_data.keys())}")
+        if multimodal_data:
+            for key, val in multimodal_data.items():
+                if isinstance(val, list):
+                    print(f"   - {key}: list with {len(val)} items")
+                    for i, item in enumerate(val):
+                        print(f"     [{i}]: {type(item).__name__} ({len(item) if isinstance(item, str) else 0} chars)")
+                else:
+                    print(f"   - {key}: {type(val).__name__} ({len(val) if isinstance(val, str) else 0} chars)")
+
+        # Detect input type - check both context and multimodal_data
+        has_image = (multimodal_data.get("images") or
+                    context.get("image_file") or
+                    context.get("image_url") or
+                    context.get("image_base64"))
+        has_audio = (multimodal_data.get("audio") or
+                    context.get("audio_file") or
+                    context.get("audio_base64"))
+        has_video = (multimodal_data.get("video") or
+                    context.get("video_file") or
+                    context.get("video_url"))
         has_multimodal = has_image or has_audio or has_video
+
+        print(f"\n🔍 Multimodal Detection:")
+        print(f"   - has_image: {bool(has_image)}")
+        print(f"   - has_audio: {bool(has_audio)}")
+        print(f"   - has_video: {bool(has_video)}")
+        print(f"   - has_multimodal: {bool(has_multimodal)}")
 
         # OPTIMIZATION: Skip Gemini for text-only queries
         if not has_multimodal:
+            print(f"\n⚡ Text-only mode - skipping Gemini (OPTIMIZATION)")
             # Use lightweight regex-based entity extraction (saves 2-3s per request vs Gemini)
             extracted_entities = extract_entities_from_text(user_input)
+            print(f"   Extracted entities: {extracted_entities}")
 
             return {
                 "processed_input": {
@@ -146,6 +186,7 @@ async def preprocess_input_node(state: AgentState) -> Dict[str, Any]:
             }
 
         # Multimodal content detected - use Gemini
+        print(f"\n🎬 Multimodal mode detected - calling Gemini!")
         input_modalities = ["text"]
         if has_image:
             input_modalities.append("image")
@@ -153,20 +194,35 @@ async def preprocess_input_node(state: AgentState) -> Dict[str, Any]:
             input_modalities.append("audio")
         if has_video:
             input_modalities.append("video")
+        print(f"   Input modalities: {input_modalities}")
 
         # Create multimodal input
+        # Priority: use base64 from multimodal_data, fallback to file paths
+        image_base64_data = multimodal_data.get("images", [None])[0] if multimodal_data.get("images") else None
+        print(f"\n📸 Image data preparation:")
+        print(f"   - image_file from context: {context.get('image_file')}")
+        print(f"   - image_base64 from multimodal_data: {len(image_base64_data) if image_base64_data else 0} chars")
+
         multimodal_input = MultimodalInput(
             text=user_input,
             audio_file=context.get("audio_file"),
             image_file=context.get("image_file"),
             video_file=context.get("video_file"),
-            current_page=context.get("page", "busDashboard")
+            current_page=context.get("page", "busDashboard"),
+            # Add base64 data from multimodal_data
+            image_base64=image_base64_data,
+            audio_base64=multimodal_data.get("audio"),
+            video_base64=multimodal_data.get("video")
         )
 
+        print(f"\n🚀 Calling GeminiMultimodalProcessor.process_multimodal_input()...")
         # Process with Gemini (only for multimodal)
         try:
             processor = GeminiMultimodalProcessor()
             processed_result = await processor.process_multimodal_input(multimodal_input)
+            print(f"✅ Gemini processing complete!")
+            print(f"   Extracted entities: {processed_result.get('extracted_entities', {})}")
+            print("🔧"*50 + "\n")
 
             return {
                 "processed_input": processed_result,
@@ -175,6 +231,8 @@ async def preprocess_input_node(state: AgentState) -> Dict[str, Any]:
             }
         except Exception as gemini_error:
             # Graceful fallback if Gemini API fails
+            print(f"❌ Gemini processing failed: {str(gemini_error)}")
+            print("🔧"*50 + "\n")
             return {
                 "processed_input": {
                     "original_text": user_input,

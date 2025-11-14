@@ -27,13 +27,19 @@ from app.models.route import Route
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def _resolve_trip_id(trip_identifier: Any, db: AsyncSession) -> Optional[int]:
+async def _resolve_trip_id(trip_identifier: Any, db: AsyncSession, context: Dict[str, Any] = None) -> Optional[int]:
     """
-    Resolve trip identifier to trip_id with fuzzy matching.
+    Resolve trip identifier to trip_id with fuzzy matching and intelligent disambiguation.
+
+    When multiple trips match, uses context to pick the right one:
+    - If user asked for "lowest booking%", returns trip with minimum booking_percentage
+    - If user asked for "highest booking%", returns trip with maximum booking_percentage
+    - Otherwise, returns the first match
 
     Args:
         trip_identifier: Can be trip_id (int) or trip name (str)
         db: Database session
+        context: Optional context dict with visual_indicators, action_intent, etc.
 
     Returns:
         trip_id as integer, or None if not found
@@ -54,30 +60,77 @@ async def _resolve_trip_id(trip_identifier: Any, db: AsyncSession) -> Optional[i
 
         # Try exact match first
         result = await db.execute(
-            select(DailyTrip.trip_id).where(DailyTrip.display_name == trip_name_search)
+            select(DailyTrip).where(DailyTrip.display_name == trip_name_search)
         )
-        trip_id = result.scalar_one_or_none()
-        if trip_id:
-            return trip_id
+        trips = result.scalars().all()
+        if trips:
+            return _disambiguate_trips(trips, context)
 
         # Try case-insensitive match
         result = await db.execute(
-            select(DailyTrip.trip_id).where(DailyTrip.display_name.ilike(trip_name_search))
+            select(DailyTrip).where(DailyTrip.display_name.ilike(trip_name_search))
         )
-        trip_id = result.scalar_one_or_none()
-        if trip_id:
-            return trip_id
+        trips = result.scalars().all()
+        if trips:
+            return _disambiguate_trips(trips, context)
 
         # Try partial match with normalized time (6:00 → 06:00)
         import re
         normalized_search = re.sub(r'\b(\d):(\d{2})\b', r'0\1:\2', trip_name_search)
         result = await db.execute(
-            select(DailyTrip.trip_id).where(DailyTrip.display_name.ilike(f"%{normalized_search}%"))
+            select(DailyTrip).where(DailyTrip.display_name.ilike(f"%{normalized_search}%"))
         )
-        trip_id = result.scalar_one_or_none()
-        return trip_id
+        trips = result.scalars().all()
+        if trips:
+            return _disambiguate_trips(trips, context)
 
     return None
+
+
+def _disambiguate_trips(trips: list, context: Dict[str, Any] = None) -> int:
+    """
+    When multiple trips match, use context to pick the right one.
+
+    Args:
+        trips: List of DailyTrip objects that matched the search
+        context: Optional context with visual_indicators, action_intent, etc.
+
+    Returns:
+        trip_id of the best match
+    """
+    if len(trips) == 1:
+        return trips[0].trip_id
+
+    # Multiple matches - use context to disambiguate
+    print(f"⚠️  Multiple trips matched ({len(trips)} found). Using context to disambiguate...")
+    
+    # Check visual_indicators or action_intent for clues
+    if context:
+        visual_indicators = context.get("visual_indicators", [])
+        action_intent = context.get("action_intent", "")
+        
+        # Convert to lowercase string for easier matching
+        context_str = " ".join(visual_indicators).lower() if visual_indicators else ""
+        context_str += " " + action_intent.lower()
+        
+        # User asked for lowest booking%
+        if "lowest" in context_str or "minimum" in context_str:
+            print(f"   → User asked for LOWEST booking% - selecting trip with minimum booking")
+            selected_trip = min(trips, key=lambda t: t.booking_percentage)
+            print(f"   → Selected: {selected_trip.display_name} (booking: {selected_trip.booking_percentage}%)")
+            return selected_trip.trip_id
+        
+        # User asked for highest booking%
+        if "highest" in context_str or "maximum" in context_str:
+            print(f"   → User asked for HIGHEST booking% - selecting trip with maximum booking")
+            selected_trip = max(trips, key=lambda t: t.booking_percentage)
+            print(f"   → Selected: {selected_trip.display_name} (booking: {selected_trip.booking_percentage}%)")
+            return selected_trip.trip_id
+    
+    # No context clues - return first match (with warning)
+    print(f"   → No context clues found - defaulting to first match")
+    print(f"   → Selected: {trips[0].display_name}")
+    return trips[0].trip_id
 
 
 async def _resolve_route_id(route_identifier: Any, db: AsyncSession) -> Optional[int]:
@@ -219,8 +272,9 @@ async def check_consequences_node(state: AgentState) -> Dict[str, Any]:
         # Get database session
         async for db in get_db():
             # Resolve entity_id (could be name or ID)
+            # Pass extracted_entities as context for intelligent disambiguation
             if consequence_action_type in ["remove_vehicle", "delete_trip"]:
-                resolved_entity_id = await _resolve_trip_id(entity_id, db)
+                resolved_entity_id = await _resolve_trip_id(entity_id, db, context=extracted_entities)
             elif consequence_action_type == "deactivate_route":
                 resolved_entity_id = await _resolve_route_id(entity_id, db)
             else:
@@ -261,10 +315,19 @@ async def check_consequences_node(state: AgentState) -> Dict[str, Any]:
             # LOW risk may require confirmation based on context
             requires_confirmation = risk_level == "high"
 
+            # CRITICAL: Update tool_params with resolved entity_id for execution node
+            # This ensures the tool receives the numeric ID, not the string name
+            updated_tool_params = dict(tool_params or {})
+            if consequence_action_type in ["remove_vehicle", "delete_trip"]:
+                updated_tool_params["trip_id"] = resolved_entity_id
+            elif consequence_action_type == "deactivate_route":
+                updated_tool_params["route_id"] = resolved_entity_id
+
             return {
                 "consequences": consequence_data,
                 "risk_level": risk_level,
                 "requires_confirmation": requires_confirmation,
+                "tool_params": updated_tool_params,  # Return updated params with resolved IDs
                 "error": None,
             }
 

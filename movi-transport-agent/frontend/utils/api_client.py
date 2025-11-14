@@ -51,14 +51,45 @@ def send_message_to_agent(
     from .file_encoder import encode_file_to_base64
 
     try:
+        print("\n" + "="*80)
+        print("🔍 FRONTEND API CLIENT - send_message_to_agent()")
+        print("="*80)
+        print(f"📝 User Input: {user_input}")
+        print(f"🔑 Session ID: {session_id}")
+        print(f"📍 Page Context: {current_page}")
+        print(f"🎤 Audio File: {audio_file}")
+        print(f"📸 Image File: {image_file}")
+        print(f"🎥 Video File: {video_file}")
+
         # Prepare multimodal data
         multimodal_data = {}
         if audio_file:
+            print(f"🎤 Encoding audio file: {audio_file}")
             multimodal_data["audio"] = encode_file_to_base64(audio_file)
+            print(f"   ✅ Audio encoded: {len(multimodal_data['audio'])} chars")
+
         if image_file:
-            multimodal_data["image"] = encode_file_to_base64(image_file)
+            print(f"📸 Encoding image file: {image_file}")
+            # Backend expects "images" as a list, not "image" as string
+            encoded_image = encode_file_to_base64(image_file)
+            multimodal_data["images"] = [encoded_image]
+            print(f"   ✅ Image encoded: {len(encoded_image)} chars")
+            print(f"   ✅ Set multimodal_data['images'] = [base64_string]")
+
         if video_file:
+            print(f"🎥 Encoding video file: {video_file}")
             multimodal_data["video"] = encode_file_to_base64(video_file)
+            print(f"   ✅ Video encoded: {len(multimodal_data['video'])} chars")
+
+        print(f"\n📦 Multimodal data keys: {list(multimodal_data.keys())}")
+        if multimodal_data:
+            for key, val in multimodal_data.items():
+                if isinstance(val, list):
+                    print(f"   - {key}: list with {len(val)} items")
+                    for i, item in enumerate(val):
+                        print(f"     [{i}]: {type(item).__name__} ({len(item) if isinstance(item, str) else 0} chars)")
+                else:
+                    print(f"   - {key}: {type(val).__name__} ({len(val) if isinstance(val, str) else 0} chars)")
 
         # Prepare request payload
         payload = {
@@ -72,6 +103,14 @@ def send_message_to_agent(
         # Add multimodal data if present
         if multimodal_data:
             payload["multimodal_data"] = multimodal_data
+            print(f"\n✅ Added multimodal_data to payload")
+        else:
+            print(f"\n⚠️  No multimodal data - text-only request")
+
+        print(f"\n🚀 Sending POST to {API_BASE}/agent/message")
+        print(f"📦 Payload keys: {list(payload.keys())}")
+        if "multimodal_data" in payload:
+            print(f"   - multimodal_data keys: {list(payload['multimodal_data'].keys())}")
 
         # Send request to backend
         with httpx.Client(timeout=90.0) as client:  # Increased from 30s to 90s for slower LLM responses
@@ -80,8 +119,14 @@ def send_message_to_agent(
                 json=payload
             )
 
+            print(f"\n📡 Response Status: {response.status_code}")
+
             if response.status_code == 200:
                 response_data = response.json()
+                print(f"✅ Response received - keys: {list(response_data.keys())}")
+                if response_data.get("error"):
+                    print(f"❌ Error in response: {response_data.get('error')}")
+
                 # Handle nested JSON responses
                 if "response" in response_data and isinstance(response_data["response"], str):
                     try:
@@ -89,13 +134,17 @@ def send_message_to_agent(
                         import json
                         inner_response = json.loads(response_data["response"])
                         response_data.update(inner_response)
+                        print(f"   Parsed nested JSON response")
                         return response_data, None
                     except (json.JSONDecodeError, KeyError):
                         # If parsing fails, use the raw response
                         pass
+                print("="*80 + "\n")
                 return response_data, None
             else:
                 error_msg = f"Backend error: {response.status_code} - {response.text}"
+                print(f"❌ {error_msg}")
+                print("="*80 + "\n")
                 return {}, error_msg
 
     except httpx.TimeoutException:

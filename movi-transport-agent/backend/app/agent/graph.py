@@ -27,6 +27,7 @@ Edges:
 
 import os
 from typing import Dict, Any
+from datetime import datetime
 from langgraph.graph import StateGraph, END
 from app.agent.state import AgentState
 from app.agent.nodes import (
@@ -183,6 +184,7 @@ async def run_movi_agent(
     context: Dict[str, Any],
     multimodal_data: Dict[str, Any] = None,
     user_confirmed: bool = False,
+    preserved_state: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """
     Run the Movi Transport Agent workflow.
@@ -235,20 +237,44 @@ async def run_movi_agent(
         user_input=user_input,
         session_id=session_id,
         context=context,
+        multimodal_data=multimodal_data,  # ADD THIS!
     )
-
-    # Add multimodal data if provided
-    if multimodal_data:
-        initial_state["multimodal_data"] = multimodal_data
 
     # Add user confirmation if provided
     if user_confirmed:
         initial_state["user_confirmed"] = True
+        
+        # If preserved_state is provided (from confirmation flow), FULLY restore it
+        # This makes the flow STATEFUL - we continue from where we left off
+        if preserved_state:
+            print(f"\n{'='*80}")
+            print(f"🔄 CONFIRMATION FLOW - Restoring complete state from session")
+            print(f"{'='*80}")
+            
+            # Completely replace initial_state with preserved_state
+            # Keep only the new user_confirmed flag and session_id
+            initial_state = dict(preserved_state)  # Copy all fields
+            initial_state["user_confirmed"] = True
+            initial_state["session_id"] = session_id
+            initial_state["timestamp"] = datetime.utcnow().isoformat()
+            
+            # Clear requires_confirmation since user just confirmed
+            initial_state["requires_confirmation"] = False
+            
+            print(f"✅ Restored complete state:")
+            print(f"   - intent: {initial_state.get('intent')}")
+            print(f"   - action_type: {initial_state.get('action_type')}")
+            print(f"   - tool_name: {initial_state.get('tool_name')}")
+            print(f"   - tool_params: {initial_state.get('tool_params')}")
+            print(f"   - extracted_entities: {initial_state.get('extracted_entities')}")
+            print(f"   - risk_level: {initial_state.get('risk_level')}")
+            print(f"   - user_confirmed: True")
+            print(f"{'='*80}\n")
 
     # Run the graph
     final_state = await movi_agent_graph.ainvoke(initial_state)
 
-    # Extract response
+    # Extract response fields for API, but return COMPLETE state for session storage
     response = {
         "response": final_state.get("response", ""),
         "response_type": final_state.get("response_type", "info"),
@@ -261,6 +287,17 @@ async def run_movi_agent(
         "confirmation_message": final_state.get("confirmation_message"),
         "error": final_state.get("error"),
         "tool_results": final_state.get("tool_results"),  # Include for metadata/UI actions
+        
+        # CRITICAL: Include ALL state fields for proper session persistence
+        # These are needed to restore context during confirmation flow
+        "tool_params": final_state.get("tool_params"),
+        "extracted_entities": final_state.get("extracted_entities"),
+        "consequences": final_state.get("consequences"),
+        "risk_level": final_state.get("risk_level"),
+        "processed_input": final_state.get("processed_input"),
+        "input_modalities": final_state.get("input_modalities"),
+        "user_confirmed": final_state.get("user_confirmed"),
+        "action_plan": final_state.get("action_plan"),
     }
 
     return response

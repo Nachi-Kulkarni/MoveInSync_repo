@@ -44,6 +44,14 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
         - tool_params: Parameters for tool
     """
     try:
+        # CRITICAL: Skip classification if state already has intent (confirmation flow)
+        # This preserves the restored state from the session
+        if state.get("user_confirmed") and state.get("intent"):
+            print("\n" + "⏭️ "*50)
+            print("⏭️  SKIPPING CLASSIFY - Intent already determined (confirmation flow)")
+            print("⏭️ "*50 + "\n")
+            return {}  # Return empty dict to preserve existing state
+        
         # Get processed input
         processed_input = state.get("processed_input", {})
         user_input = state.get("user_input", "")

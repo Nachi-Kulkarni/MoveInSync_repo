@@ -27,7 +27,10 @@ class MultimodalInput:
         audio_file: Optional[Union[str, Path]] = None,
         image_file: Optional[Union[str, Path]] = None,
         video_file: Optional[Union[str, Path]] = None,
-        current_page: str = "busDashboard"
+        current_page: str = "busDashboard",
+        image_base64: Optional[str] = None,
+        audio_base64: Optional[str] = None,
+        video_base64: Optional[str] = None
     ):
         """
         Initialize multimodal input.
@@ -37,12 +40,19 @@ class MultimodalInput:
             audio_file: Path to audio file or URL
             image_file: Path to image file or URL
             video_file: Path to video file or URL
+            current_page: Current page context
+            image_base64: Base64-encoded image data (alternative to image_file)
+            audio_base64: Base64-encoded audio data (alternative to audio_file)
+            video_base64: Base64-encoded video data (alternative to video_file)
             current_page: Current UI page context for better understanding
         """
         self.text = text
         self.audio_file = audio_file
+        self.audio_base64 = audio_base64
         self.image_file = image_file
+        self.image_base64 = image_base64
         self.video_file = video_file
+        self.video_base64 = video_base64
         self.current_page = current_page
 
 
@@ -235,18 +245,30 @@ Respond in JSON format with this structure:
         prompt_text = multimodal_input.text or "Please analyze this input and extract relevant transport management information."
         user_content.append(create_text_content(prompt_text))
 
-        # Add image if provided
-        if multimodal_input.image_file:
+        # Add image if provided (prioritize base64 over file)
+        if multimodal_input.image_base64:
+            # Use base64 directly
+            image_content = create_image_content(f"data:image/jpeg;base64,{multimodal_input.image_base64}")
+            user_content.append(image_content)
+        elif multimodal_input.image_file:
             image_content = await self._process_image(multimodal_input.image_file)
             user_content.append(image_content)
 
-        # Add audio if provided
-        if multimodal_input.audio_file:
+        # Add audio if provided (prioritize base64 over file)
+        if multimodal_input.audio_base64:
+            # Use base64 directly
+            audio_content = create_audio_content(multimodal_input.audio_base64)
+            user_content.append(audio_content)
+        elif multimodal_input.audio_file:
             audio_content = await self._process_audio(multimodal_input.audio_file)
             user_content.append(audio_content)
 
-        # Add video if provided
-        if multimodal_input.video_file:
+        # Add video if provided (prioritize base64 over file)
+        if multimodal_input.video_base64:
+            # Use base64 directly
+            video_content = create_video_content(f"data:video/mp4;base64,{multimodal_input.video_base64}")
+            user_content.append(video_content)
+        elif multimodal_input.video_file:
             video_content = await self._process_video(multimodal_input.video_file)
             user_content.append(video_content)
 
