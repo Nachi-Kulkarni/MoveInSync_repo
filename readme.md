@@ -3,40 +3,24 @@
 ## Made by-Nachiket Kulkarni
 ### details- nachiram03@gmail.com, Phone.no- 9586797078
 
-# Langgraph Architecture
+## Architecture
 
-Input (Text/Voice/Image)
-    ↓
-[Preprocessing Layer]
-├─ Speech-to-Text (if voice)
-├─ Image Quick Scan (if image)
-└─ Context Injection (current page)
-    ↓
-[Intent Understanding] (Claude Sonnet 4.5)
-├─ Extract: action, entities, page context
-└─ Classify: read/create/delete/update
-    ↓
-[Consequence Checker] ← **THE STAR NODE**
-├─ Query DB for implications
-├─ Check: bookings? dependencies? conflicts?
-└─ Risk Score: none/low/high
-    ↓
-    ├─[Conditional Edge]─────┐
-    │                         │
-[Low/No Risk]          [High Risk]
-    │                         │
-    ↓                         ↓
-[Execute Action]      [Confirmation Dialog]
-    │                   ├─ Explain consequences
-    │                   ├─ Offer alternatives
-    │                   └─ Wait for response
-    │                         │
-    │                    [User Response]
-    │                    ├─ "Yes" → Execute
-    │                    ├─ "No" → Cancel
-    │                    └─ "Modify" → Replan
-    │                         ↓
-    └─────────────────>[Response Generator]
-                              ↓
-                     [TTS + UI Update]
+The system architecture is illustrated below:
 
+![Architecture Diagram](./architecture.png)
+
+### Architecture Flow (Mermaid)
+
+> **Note**: The Mermaid diagram below renders on GitHub. To view it locally, open [`architecture.mmd`](./architecture.mmd) at [mermaid.live](https://mermaid.live) or use a Mermaid viewer.
+
+### Architecture Overview
+
+The Movi-Transport Agent follows a sophisticated flow:
+1. **Input Layer**: Accepts text, voice, or image inputs
+2. **Preprocessing Layer**: Handles speech-to-text conversion, image scanning, and context injection
+3. **Intent Understanding**: Uses Claude Sonnet 4.5 to extract actions, entities, and classify operations
+4. **Consequence Checker (THE STAR NODE)**: Queries database for implications, checks bookings/dependencies/conflicts, and assigns risk scores
+5. **Conditional Routing**: Based on risk assessment:
+   - **Low/No Risk**: Direct execution
+   - **High Risk**: User confirmation dialog with alternatives
+6. **Response Generator**: Generates appropriate responses with TTS and UI updates
